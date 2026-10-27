@@ -4,3 +4,7 @@ function PointsButton() {
     points = points + 1;
     document.getElementById('score').innerText = points;
 }
+
+function StartButton() {
+    window.location.href = "/game/shop";
+}
