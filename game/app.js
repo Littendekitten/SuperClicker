@@ -5,6 +5,6 @@ function PointsButton() {
     document.getElementById('score').innerText = points;
 }
 
-function StartButton() {
+function ShopButton() {
     window.location.href = "/game/shop";
 }
