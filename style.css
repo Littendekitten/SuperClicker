@@ -1,0 +1,28 @@
+body {
+    /* Flex Container */
+    display: flex;
+    flex-direction: column;
+
+    align-items: center;
+    /* Flex Container */
+
+    
+    height: 100vh;
+    margin: 0;
+    
+    background: linear-gradient(to bottom, #0b0f19, #12092a);
+    color: #ffffff;
+    font-family: 'Poppins', sans-serif;
+}
+
+
+button {
+    font-size: 24px;
+    padding: 15px 30px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 8px;
+    border: none;
+    background-color: #ff8400;
+    color: white;
+}
