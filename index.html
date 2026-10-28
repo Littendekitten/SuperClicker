@@ -5,13 +5,34 @@
     <link rel="icon" type="image/png" href="https://uploads.onecompiler.io/457druwjf/457drwd44/SC.png">
     <title>SuperClicker</title>
 
-    <link rel="stylesheet" href="startmenu.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
 </head>
 <body>
 
-    <h1>Welcome To SuperClicker!</h1>
-    <button onclick="StartButton()">Start Game</button>
 
-    <script src="startbutton.js" defer></script>
+    <section id="menu-screen" class="screen">
+        <h1>Welcome To SuperClicker!</h1>
+        <button onclick="showScreen('game-screen')">Start Game</button>
+    </section>
+
+    <section id="game-screen" class="screen hidden">
+        <h4>SuperClicker&copy;</h4>
+        <h2>Points: <span id="score">0</span></h2>
+        <button onclick="pointsButton()">Click Me!</button>
+        <button onclick="showScreen('shop-screen')">Shop</button>
+        <button onclick="showScreen('menu-screen')">Go Back</button>
+    </section>
+
+    <section id="shop-screen" class="screen hidden">
+        <h4>SuperClicker&copy;</h4>
+        <h2>Points: <span id="shop-score">0</span></h2>
+        <h2>AutoClicker lvl <span id="auto-level">0</span></h2>
+        <button onclick="buyAutoClicker()">
+            Buy AutoClicker (<span id="auto-cost">10</span> points)
+        </button>
+        <button onclick="showScreen('game-screen')">Back to Game</button>
+    </section>
+
 </body>
 </html>
