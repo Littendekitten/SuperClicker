@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
-const auth = getAuth(app);
-const db = getFirestore(app);
+import { getAuth } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
   authDomain: "kitacat-sushiclicker.firebaseapp.com",
@@ -10,8 +11,12 @@ const firebaseConfig = {
   appId: "1:113712170507:web:d8d2d2ee5ea0fb9deb290e",
   measurementId: "G-EVDN6DJE68"
 };
-const app = initializeApp(firebaseConfig);
 
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+console.log(auth, db);
 
 let points = 0;
 let autoLevel = 0;
