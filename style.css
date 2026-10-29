@@ -18,11 +18,15 @@
     box-sizing: border-box;
 }
 
+/* Solid color behind everything, so you never see white when scrolling or overscrolling */
+html {
+    background-color: var(--nori);
+}
+
 body {
     margin: 0;
     min-height: 100vh;
     background: linear-gradient(to bottom, var(--nori-light), var(--nori));
-    background-attachment: fixed;
     color: var(--rice);
     font-family: 'Fredoka', system-ui, sans-serif;
     font-size: 18px;
@@ -61,6 +65,12 @@ h2 {
     color: var(--rice-muted);
 }
 
+h3 {
+    margin: 0 0 4px;
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
 h4 {
     margin: 0;
     font-size: 1rem;
@@ -78,20 +88,13 @@ p {
     min-height: 1.4em;
 }
 
-/* The big numbers: points */
-#score,
-#shop-score {
+/* The big number: points */
+#score {
     display: block;
     font-size: clamp(3.5rem, 16vw, 5rem);
     font-weight: 700;
     line-height: 1.1;
     color: var(--wasabi);
-}
-
-#auto-level,
-#auto-cost {
-    color: var(--rice);
-    font-weight: 600;
 }
 
 .logo {
@@ -114,7 +117,8 @@ button {
     transition: transform 0.12s ease, background-color 0.12s ease;
 }
 
-.screen > button {
+.screen > button,
+.counter > button {
     width: min(100%, 320px);
 }
 
@@ -135,8 +139,7 @@ button:focus-visible {
 
 /* Quiet buttons: going back / signing out */
 #logout-btn,
-[data-goto="menu-screen"],
-#shop-screen [data-goto="game-screen"] {
+[data-goto="menu-screen"] {
     background: transparent;
     color: var(--rice);
     border-color: rgba(246, 243, 234, 0.35);
@@ -144,10 +147,119 @@ button:focus-visible {
 
 @media (hover: hover) {
     #logout-btn:hover,
-    [data-goto="menu-screen"]:hover,
-    #shop-screen [data-goto="game-screen"]:hover {
+    [data-goto="menu-screen"]:hover {
         background: rgba(246, 243, 234, 0.1);
     }
+}
+
+/* ---------- Game layout: nigiri on the left, store on the right ---------- */
+#game-screen {
+    padding: 24px 20px;
+}
+
+.game-layout {
+    width: min(100%, 980px);
+    display: grid;
+    grid-template-columns: 1fr;   /* phones: stacked */
+    gap: 28px;
+}
+
+.counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+}
+
+/* Wide screens: two columns */
+@media (min-width: 820px) {
+    .game-layout {
+        grid-template-columns: 1fr 380px;
+        align-items: stretch;
+    }
+
+    .store {
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
+    }
+}
+
+/* ---------- The store ---------- */
+.store {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 24px;
+    background: rgba(246, 243, 234, 0.06);
+    text-align: left;
+}
+
+#store-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.store-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    background: var(--nori-light);
+    color: var(--rice);
+    border: 2px solid var(--salmon);
+    text-align: left;
+    font-size: 1rem;
+}
+
+/* :not(:disabled) makes this rule strong enough to beat the general button:hover */
+@media (hover: hover) {
+    .store-item:not(:disabled):hover {
+        background: #234438;
+    }
+}
+
+/* Can't afford it yet */
+.store-item:disabled {
+    opacity: 0.45;
+    border-color: rgba(246, 243, 234, 0.2);
+    cursor: not-allowed;
+}
+
+.store-item:disabled:active {
+    transform: none;
+}
+
+.item-emoji {
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.item-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.item-name {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.item-detail {
+    font-weight: 400;
+    font-size: 0.9rem;
+    color: var(--rice-muted);
+}
+
+.item-owned {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--wasabi);
 }
 
 /* ---------- The nigiri: the big click button ---------- */
@@ -202,9 +314,30 @@ button:focus-visible {
     box-shadow: 0 2px 0 #b8b2a0, 0 8px 14px rgba(0, 0, 0, 0.4);
 }
 
+/* ---------- The "+1" that floats up when you click ---------- */
+.float {
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;   /* so it never blocks your next click */
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--wasabi);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    animation: float-up 0.8s ease-out forwards;
+}
+
+@keyframes float-up {
+    from { opacity: 1; margin-top: 0; }
+    to   { opacity: 0; margin-top: -70px; }
+}
+
 /* ---------- Respect people who turn animations off ---------- */
 @media (prefers-reduced-motion: reduce) {
     button {
         transition: none;
+    }
+
+    .float {
+        display: none;
     }
 }
