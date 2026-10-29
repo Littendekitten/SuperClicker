@@ -10,29 +10,28 @@
 </head>
 <body>
 
-
     <section id="menu-screen" class="screen">
-        <img src="SC.png" alt="SuperClicker logo" class="logo">
+        <img src="SC.png" alt="SushiClicker logo" class="logo">
         <h1>Welcome To SushiClicker!</h1>
-        <button onclick="showScreen('game-screen')">Start Game</button>
+        <button data-goto="game-screen">Start Game</button>
     </section>
 
     <section id="game-screen" class="screen hidden">
         <h4>SushiClicker&copy;</h4>
         <h2>Points: <span id="score">0</span></h2>
-        <button onclick="pointsButton()">Click Me!</button>
-        <button onclick="showScreen('shop-screen')">Shop</button>
-        <button onclick="showScreen('menu-screen')">Go Back</button>
+        <button id="click-btn">Click Me!</button>
+        <button data-goto="shop-screen">Shop</button>
+        <button data-goto="menu-screen">Go Back</button>
     </section>
 
     <section id="shop-screen" class="screen hidden">
         <h4>SushiClicker&copy;</h4>
         <h2>Points: <span id="shop-score">0</span></h2>
         <h2>AutoClicker lvl <span id="auto-level">0</span></h2>
-        <button onclick="buyAutoClicker()">
+        <button id="buy-auto-btn">
             Buy AutoClicker (<span id="auto-cost">10</span> points)
         </button>
-        <button onclick="showScreen('game-screen')">Back to Game</button>
+        <button data-goto="game-screen">Back to Game</button>
     </section>
 
 </body>
