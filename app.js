@@ -23,12 +23,13 @@ const db = getFirestore(app);
 //   baseCost:   price of the first one
 //   perSecond:  points each one makes every second
 const ITEMS = [
-    { id: 'chef',       name: 'Sushi Chef',       emoji: '🧑‍🍳', baseCost: 10,    perSecond: 1 },
-    { id: 'ricecooker', name: 'Rice Cooker',      emoji: '🍚', baseCost: 60,    perSecond: 5 },
-    { id: 'belt',       name: 'Conveyor Belt',    emoji: '🔄', baseCost: 300,   perSecond: 20 },
-    { id: 'boat',       name: 'Fishing Boat',     emoji: '⛵', baseCost: 1500,  perSecond: 80 },
-    { id: 'restaurant', name: 'Sushi Restaurant', emoji: '🏮', baseCost: 8000,  perSecond: 350 },
-    { id: 'market',     name: 'Fish Market',      emoji: '🐟', baseCost: 40000, perSecond: 1500 },
+    { id: 'chopsticks', name: 'Chopsticks',       emoji: '🥢', baseCost: 1,     perSecond: 0.01 },
+    { id: 'chef',       name: 'Sushi Chef',       emoji: '🧑‍🍳', baseCost: 5,     perSecond: 0.1 },
+    { id: 'ricecooker', name: 'Rice Cooker',      emoji: '🍚', baseCost: 30,    perSecond: 0.5 },
+    { id: 'belt',       name: 'Conveyor Belt',    emoji: '🔄', baseCost: 150,   perSecond: 2 },
+    { id: 'boat',       name: 'Fishing Boat',     emoji: '⛵', baseCost: 750,   perSecond: 8 },
+    { id: 'restaurant', name: 'Sushi Restaurant', emoji: '🏮', baseCost: 4000,  perSecond: 35 },
+    { id: 'market',     name: 'Fish Market',      emoji: '🐟', baseCost: 20000, perSecond: 150 },
 ];
 
 const PRICE_GROWTH = 1.15; // each one you buy makes the next 15% more expensive
@@ -62,7 +63,13 @@ function totalPerSecond() {
 }
 
 function format(number) {
-    return Math.floor(number).toLocaleString('en-US'); // 12345 -> "12,345"
+    return Math.floor(number).toLocaleString('en-US'); // 12345.7 -> "12,345"
+}
+
+// For small numbers like 0.01 per second: shows up to 2 decimals, no trailing zeros
+function formatRate(number) {
+    const rounded = Math.round(number * 100) / 100; // 0.30000000000000004 -> 0.3
+    return rounded.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 // ---------- Screens ----------
@@ -89,7 +96,7 @@ function buildStore() {
             '<span class="item-info">' +
                 '<span class="item-name">' + item.name + '</span>' +
                 '<span class="item-detail">' +
-                    '<span class="item-cost"></span> points, +' + format(item.perSecond) + '/s' +
+                    '<span class="item-cost"></span> points, +' + formatRate(item.perSecond) + '/s' +
                 '</span>' +
             '</span>' +
             '<span class="item-owned">0</span>';
@@ -105,7 +112,7 @@ buildStore();
 // ---------- Showing numbers on the page ----------
 function updateDisplay() {
     document.getElementById('score').innerText = format(points);
-    document.getElementById('per-second').innerText = format(totalPerSecond()) + ' per second';
+    document.getElementById('per-second').innerText = formatRate(totalPerSecond()) + ' per second';
 
     for (const item of ITEMS) {
         const button = storeButtons[item.id];
@@ -173,7 +180,7 @@ async function save() {
     try {
         await setDoc(doc(db, 'users', currentUser.uid), {
             name: currentUser.displayName,
-            points: Math.floor(points),
+            points: Math.round(points * 100) / 100, // keep 2 decimals so slow income isn't lost
             owned: owned
         });
     } catch (error) {
