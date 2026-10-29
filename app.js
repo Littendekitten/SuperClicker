@@ -21,9 +21,10 @@ const db = getFirestore(app);
 // points-per-second all pick it up automatically.
 //   id:         short name used for saving (never change it later!)
 //   baseCost:   price of the first one
-//   perSecond:  points each one makes every second
+//   perSecond:  points each one makes every second (optional)
+//   perClick:   extra points each one adds to every click (optional)
 const ITEMS = [
-    { id: 'chopsticks', name: 'Chopsticks',       emoji: '🥢', baseCost: 1,     perSecond: 0.01 },
+    { id: 'chopsticks', name: 'Chopsticks',       emoji: '🥢', baseCost: 10,    perClick: 1 },
     { id: 'chef',       name: 'Sushi Chef',       emoji: '🧑‍🍳', baseCost: 5,     perSecond: 0.1 },
     { id: 'ricecooker', name: 'Rice Cooker',      emoji: '🍚', baseCost: 30,    perSecond: 0.5 },
     { id: 'belt',       name: 'Conveyor Belt',    emoji: '🔄', baseCost: 150,   perSecond: 2 },
@@ -57,7 +58,16 @@ function itemCost(item) {
 function totalPerSecond() {
     let total = 0;
     for (const item of ITEMS) {
-        total = total + item.perSecond * owned[item.id];
+        total = total + (item.perSecond || 0) * owned[item.id]; // "|| 0" = items without perSecond count as 0
+    }
+    return total;
+}
+
+// How many points one click is worth: 1, plus the bonus from every upgrade that has perClick
+function clickPower() {
+    let total = 1;
+    for (const item of ITEMS) {
+        total = total + (item.perClick || 0) * owned[item.id];
     }
     return total;
 }
@@ -89,6 +99,15 @@ const storeButtons = {}; // item id -> its button, so we can update it later
 function buildStore() {
     const list = document.getElementById('store-list');
     for (const item of ITEMS) {
+        // Describe what it does, e.g. "+1 per click" or "+0.1/s"
+        let effect = '';
+        if (item.perClick) {
+            effect = '+' + formatRate(item.perClick) + ' per click';
+        }
+        if (item.perSecond) {
+            effect = '+' + formatRate(item.perSecond) + '/s';
+        }
+
         const button = document.createElement('button');
         button.className = 'store-item';
         button.innerHTML =
@@ -96,7 +115,7 @@ function buildStore() {
             '<span class="item-info">' +
                 '<span class="item-name">' + item.name + '</span>' +
                 '<span class="item-detail">' +
-                    '<span class="item-cost"></span> points, +' + formatRate(item.perSecond) + '/s' +
+                    '<span class="item-cost"></span> points, ' + effect +
                 '</span>' +
             '</span>' +
             '<span class="item-owned">0</span>';
@@ -112,7 +131,8 @@ buildStore();
 // ---------- Showing numbers on the page ----------
 function updateDisplay() {
     document.getElementById('score').innerText = format(points);
-    document.getElementById('per-second').innerText = formatRate(totalPerSecond()) + ' per second';
+    document.getElementById('per-second').innerText =
+        formatRate(totalPerSecond()) + ' per second, ' + formatRate(clickPower()) + ' per click';
 
     for (const item of ITEMS) {
         const button = storeButtons[item.id];
@@ -125,10 +145,11 @@ function updateDisplay() {
 
 // ---------- Game ----------
 function pointsButton(event) {
-    points = points + 1;
+    const gained = clickPower();
+    points = points + gained;
     unsaved = true;
     updateDisplay();
-    floatText(event);
+    floatText(event, gained);
 }
 
 function buyItem(item) {
@@ -142,8 +163,8 @@ function buyItem(item) {
     updateDisplay();
 }
 
-// A little "+1" that floats up from where you clicked
-function floatText(event) {
+// A little "+1" (or "+3"...) that floats up from where you clicked
+function floatText(event, amount) {
     const rect = event.currentTarget.getBoundingClientRect();
     // event.clientX is 0 when someone "clicks" with the keyboard, so fall back to the middle
     const x = event.clientX || rect.left + rect.width / 2;
@@ -151,7 +172,7 @@ function floatText(event) {
 
     const bubble = document.createElement('span');
     bubble.className = 'float';
-    bubble.innerText = '+1';
+    bubble.innerText = '+' + formatRate(amount);
     bubble.style.left = x + 'px';
     bubble.style.top = y + 'px';
     document.body.appendChild(bubble);
