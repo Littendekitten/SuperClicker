@@ -57,3 +57,13 @@ setInterval(function () {
     points = points + autoLevel;
     updateDisplay();
 }, 1000);
+
+// Every button with data-goto="..." switches to that screen
+for (const button of document.querySelectorAll('[data-goto]')) {
+    button.addEventListener('click', function () {
+        showScreen(button.dataset.goto);
+    });
+}
+
+document.getElementById('click-btn').addEventListener('click', pointsButton);
+document.getElementById('buy-auto-btn').addEventListener('click', buyAutoClicker);
