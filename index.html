@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="SC.png">
     <title>SushiClicker</title>
@@ -10,10 +11,23 @@
 </head>
 <body>
 
-    <section id="menu-screen" class="screen">
+    <section id="loading-screen" class="screen">
+        <p>Loading...</p>
+    </section>
+
+    <section id="login-screen" class="screen hidden">
+        <h1>SushiClicker</h1>
+        <p>Sign in to play</p>
+        <button id="login-btn">Sign in with Google</button>
+        <p id="login-error"></p>
+    </section>
+
+    <section id="menu-screen" class="screen hidden">
         <img src="SC.png" alt="SushiClicker logo" class="logo">
         <h1>Welcome To SushiClicker!</h1>
+        <p id="login-status"></p>
         <button data-goto="game-screen">Start Game</button>
+        <button id="logout-btn">Sign out</button>
     </section>
 
     <section id="game-screen" class="screen hidden">
