@@ -3,7 +3,7 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="SC.png">
-    <title>SuperClicker</title>
+    <title>SushiClicker</title>
 
     <link rel="stylesheet" href="style.css">
     <script src="app.js" defer></script>
@@ -13,12 +13,12 @@
 
     <section id="menu-screen" class="screen">
         <img src="SC.png" alt="SuperClicker logo" class="logo">
-        <h1>Welcome To SuperClicker!</h1>
+        <h1>Welcome To SushiClicker!</h1>
         <button onclick="showScreen('game-screen')">Start Game</button>
     </section>
 
     <section id="game-screen" class="screen hidden">
-        <h4>SuperClicker&copy;</h4>
+        <h4>SushiClicker&copy;</h4>
         <h2>Points: <span id="score">0</span></h2>
         <button onclick="pointsButton()">Click Me!</button>
         <button onclick="showScreen('shop-screen')">Shop</button>
@@ -26,7 +26,7 @@
     </section>
 
     <section id="shop-screen" class="screen hidden">
-        <h4>SuperClicker&copy;</h4>
+        <h4>SushiClicker&copy;</h4>
         <h2>Points: <span id="shop-score">0</span></h2>
         <h2>AutoClicker lvl <span id="auto-level">0</span></h2>
         <button onclick="buyAutoClicker()">
