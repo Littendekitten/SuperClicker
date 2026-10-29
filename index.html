@@ -30,22 +30,25 @@
         <button id="logout-btn">Sign out</button>
     </section>
 
+    <!-- The game: left = the nigiri you click, right = the kitchen store -->
     <section id="game-screen" class="screen hidden">
-        <h4>SushiClicker&copy;</h4>
-        <h2>Points: <span id="score">0</span></h2>
-        <button id="click-btn">Click Me!</button>
-        <button data-goto="shop-screen">Shop</button>
-        <button data-goto="menu-screen">Go Back</button>
-    </section>
+        <div class="game-layout">
 
-    <section id="shop-screen" class="screen hidden">
-        <h4>SushiClicker&copy;</h4>
-        <h2>Points: <span id="shop-score">0</span></h2>
-        <h2>AutoClicker lvl <span id="auto-level">0</span></h2>
-        <button id="buy-auto-btn">
-            Buy AutoClicker (<span id="auto-cost">10</span> points)
-        </button>
-        <button data-goto="game-screen">Back to Game</button>
+            <div class="counter">
+                <h4>SushiClicker&copy;</h4>
+                <h2>Points: <span id="score">0</span></h2>
+                <p id="per-second">0 per second</p>
+                <button id="click-btn">Click Me!</button>
+                <button data-goto="menu-screen">Menu</button>
+            </div>
+
+            <div class="store">
+                <h3>Kitchen</h3>
+                <!-- app.js fills this list from the ITEMS array -->
+                <div id="store-list"></div>
+            </div>
+
+        </div>
     </section>
 
 </body>
