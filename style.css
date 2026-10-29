@@ -1,36 +1,210 @@
-body {
-    margin: 0;
-    height: 100vh;
+/* ---------- Font ---------- */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
 
-    background: linear-gradient(to bottom, #0b0f19, #12092a);
-    color: #ffffff;
-    font-family: 'Poppins', sans-serif;
+/* ---------- Colors (change them here and the whole game changes) ---------- */
+:root {
+    --nori: #0f1f1a;       /* background */
+    --nori-light: #183029; /* slightly lighter, for depth */
+    --rice: #f6f3ea;       /* text */
+    --rice-muted: #b9c2bb; /* quieter text */
+    --salmon: #ff7a4d;     /* main buttons */
+    --salmon-dark: #e55f32;
+    --wasabi: #b7e05a;     /* focus ring and points */
+    --soy: #2a1b16;        /* dark text on salmon */
 }
 
+/* ---------- Page ---------- */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(to bottom, var(--nori-light), var(--nori));
+    background-attachment: fixed;
+    color: var(--rice);
+    font-family: 'Fredoka', system-ui, sans-serif;
+    font-size: 18px;
+    line-height: 1.4;
+}
+
+/* ---------- Screens ---------- */
 .screen {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    gap: 18px;
+    min-height: 100vh;
+    padding: 32px 20px;
+    text-align: center;
 }
 
+/* Must stay AFTER .screen so it wins over display: flex */
 .hidden {
     display: none;
+}
+
+/* ---------- Text ---------- */
+h1 {
+    margin: 0;
+    font-size: clamp(2rem, 7vw, 2.8rem);
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--rice-muted);
+}
+
+h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--rice-muted);
+}
+
+p {
+    margin: 0;
+    color: var(--rice-muted);
+}
+
+#login-error {
+    color: #ff9c9c;
+    min-height: 1.4em;
+}
+
+/* The big numbers: points */
+#score,
+#shop-score {
+    display: block;
+    font-size: clamp(3.5rem, 16vw, 5rem);
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--wasabi);
+}
+
+#auto-level,
+#auto-cost {
+    color: var(--rice);
+    font-weight: 600;
 }
 
 .logo {
     width: 150px;
     height: auto;
-    margin-top: 30px;
+    border-radius: 28px; /* softens the logo's white square */
 }
 
+/* ---------- Buttons ---------- */
 button {
-    font-size: 24px;
-    padding: 15px 30px;
-    font-weight: bold;
+    font-family: inherit;
+    font-size: 1.15rem;
+    font-weight: 600;
+    padding: 14px 28px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--salmon);
+    color: var(--soy);
     cursor: pointer;
-    border-radius: 8px;
+    transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.screen > button {
+    width: min(100%, 320px);
+}
+
+button:active {
+    transform: scale(0.96);
+}
+
+button:focus-visible {
+    outline: 3px solid var(--wasabi);
+    outline-offset: 3px;
+}
+
+@media (hover: hover) {
+    button:hover {
+        background: var(--salmon-dark);
+    }
+}
+
+/* Quiet buttons: going back / signing out */
+#logout-btn,
+[data-goto="menu-screen"],
+#shop-screen [data-goto="game-screen"] {
+    background: transparent;
+    color: var(--rice);
+    border-color: rgba(246, 243, 234, 0.35);
+}
+
+@media (hover: hover) {
+    #logout-btn:hover,
+    [data-goto="menu-screen"]:hover,
+    #shop-screen [data-goto="game-screen"]:hover {
+        background: rgba(246, 243, 234, 0.1);
+    }
+}
+
+/* ---------- The nigiri: the big click button ---------- */
+#click-btn {
+    width: min(86vw, 300px);
+    height: 170px;
+    margin: 8px 0;
     border: none;
-    background-color: #ff8400;
-    color: white;
-    margin-bottom: 50px;
+    border-radius: 999px 999px 90px 90px / 110px 110px 60px 60px;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--soy);
+
+    /* Put the text at the bottom, on the rice part */
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0 0 22px;
+
+    /* Layer 1: salmon on top. Layer 2: rice underneath. */
+    background:
+        /* fat stripes on the salmon */
+        repeating-linear-gradient(
+            100deg,
+            rgba(255, 255, 255, 0.28) 0 6px,
+            transparent 6px 26px
+        ) top / 100% 60% no-repeat,
+        linear-gradient(to bottom, #ff9566, #ff6a3d) top / 100% 60% no-repeat,
+        /* the rice */
+        radial-gradient(ellipse at 50% 90%, #ffffff, #e9e4d4);
+
+    box-shadow: 0 10px 0 #b8b2a0, 0 22px 28px rgba(0, 0, 0, 0.4);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+@media (hover: hover) {
+    #click-btn:hover {
+        background:
+            repeating-linear-gradient(
+                100deg,
+                rgba(255, 255, 255, 0.28) 0 6px,
+                transparent 6px 26px
+            ) top / 100% 60% no-repeat,
+            linear-gradient(to bottom, #ff9566, #ff6a3d) top / 100% 60% no-repeat,
+            radial-gradient(ellipse at 50% 90%, #ffffff, #e9e4d4);
+    }
+}
+
+/* Pressing it pushes it down into the "plate" */
+#click-btn:active {
+    transform: translateY(8px) scale(0.99);
+    box-shadow: 0 2px 0 #b8b2a0, 0 8px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- Respect people who turn animations off ---------- */
+@media (prefers-reduced-motion: reduce) {
+    button {
+        transition: none;
+    }
 }
