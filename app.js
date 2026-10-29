@@ -1,4 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+const auth = getAuth(app);
+const db = getFirestore(app);
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
   authDomain: "kitacat-sushiclicker.firebaseapp.com",
@@ -9,7 +11,6 @@ const firebaseConfig = {
   measurementId: "G-EVDN6DJE68"
 };
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
 
 
 let points = 0;
