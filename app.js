@@ -143,8 +143,35 @@ function updateDisplay() {
     }
 }
 
+// ---------- Anti-autoclicker ----------
+const MAX_CLICKS_PER_SECOND = 12; // a fast human is around 6-10, so 12 leaves some room
+let recentClicks = [];            // when your last few clicks happened
+
+function clickAllowed(event) {
+    // Check 1: was this click made by a real mouse, touch or key?
+    // A script like button.click() creates a fake event, and isTrusted is false for those.
+    if (!event.isTrusted) {
+        return false;
+    }
+
+    // Check 2: speed limit. Forget clicks older than 1 second, then count what's left.
+    const now = performance.now();
+    recentClicks = recentClicks.filter(function (time) {
+        return now - time < 1000;
+    });
+    if (recentClicks.length >= MAX_CLICKS_PER_SECOND) {
+        return false;
+    }
+
+    recentClicks.push(now);
+    return true;
+}
+
 // ---------- Game ----------
 function pointsButton(event) {
+    if (!clickAllowed(event)) {
+        return; // ignore this click completely
+    }
     const gained = clickPower();
     points = points + gained;
     unsaved = true;
