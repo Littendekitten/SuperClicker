@@ -43,6 +43,9 @@
                     <span class="chopsticks-title">🥢 Chopsticks <span id="chopsticks-count">x0</span></span>
                     <span class="chopsticks-detail">+1 per click, <span id="chopsticks-cost">10</span> points</span>
                 </button>
+                <button class="quiet" data-goto="shop-screen">🛒 Shop</button>
+                <button class="quiet" data-goto="inventory-screen">🎒 Inventory</button>
+                <button id="anvil-btn" class="quiet hidden" data-goto="anvil-screen">⚒️ Anvil</button>
                 <button data-goto="menu-screen">Menu</button>
             </div>
 
@@ -53,7 +56,8 @@
                 <!-- app.js draws the factory floor and the moving sushi here -->
                 <canvas id="factory-canvas"></canvas>
                 <p class="factory-help">
-                    Rice cookers make sushi. Pick a piece, click a square, and press R to turn it.
+                    Buy pieces in the Shop, then pick one, click a square, and press R to turn it.
+                    Rice cookers make sushi.
                     Run belts past fish and chefs to make sushi worth more, then end the line
                     with a serving counter to sell it.
                 </p>
@@ -61,6 +65,40 @@
             </div>
 
         </div>
+    </section>
+
+    <!-- The shop: buy tiles (they go to your inventory) and unlock the anvil -->
+    <section id="shop-screen" class="screen hidden">
+        <div class="panel">
+            <h1>Shop</h1>
+            <p>Points: <span id="shop-score" class="points-text">0</span></p>
+            <div class="buy-amount">
+                <span>Buy:</span>
+                <button class="amount-btn" data-amount="1">x1</button>
+                <button class="amount-btn" data-amount="10">x10</button>
+            </div>
+            <div id="shop-list" class="item-list"></div>
+        </div>
+        <button class="quiet" data-goto="game-screen">Back to factory</button>
+    </section>
+
+    <!-- The inventory: every tile you own, exactly -->
+    <section id="inventory-screen" class="screen hidden">
+        <div class="panel">
+            <h1>Inventory</h1>
+            <p id="inventory-total">0 tiles</p>
+            <div id="inventory-list" class="item-list"></div>
+        </div>
+        <button class="quiet" data-goto="game-screen">Back to factory</button>
+    </section>
+
+    <!-- The anvil: unlocked in the shop. Merging comes later. -->
+    <section id="anvil-screen" class="screen hidden">
+        <div class="panel">
+            <h1>⚒️ Anvil</h1>
+            <p>Merging tiles is coming soon. Merged tiles will show up in your Inventory.</p>
+        </div>
+        <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
 
 </body>
