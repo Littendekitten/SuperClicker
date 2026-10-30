@@ -354,6 +354,7 @@ function buyTile(def) {
     inventory[def.id] = (inventory[def.id] || 0) + buyAmount;
     unsaved = true;
     displayDirty = true;
+    saveSoon();
 }
 
 function buyAnvil() {
@@ -364,6 +365,7 @@ function buyAnvil() {
     anvil = true;
     unsaved = true;
     displayDirty = true;
+    saveSoon();
 }
 
 // =====================================================================
@@ -460,6 +462,7 @@ function buyChopsticks() {
     chopsticks = chopsticks + 1;
     unsaved = true;
     displayDirty = true;
+    saveSoon();
 }
 
 // A little "+1" (or "+3"...) that floats up from where you clicked
@@ -929,6 +932,7 @@ canvas.addEventListener('click', function (event) {
     const square = squareFromEvent(event);
     if (square) {
         clickSquare(square.x, square.y);
+        saveSoon();
     }
 });
 
@@ -999,6 +1003,18 @@ async function save() {
 }
 
 setInterval(save, 10000);
+
+// Important changes (buying, placing, removing) save almost right away,
+// so a refresh a moment later does not lose them. Plain clicks and sales
+// still wait for the 10 second timer, to keep the number of writes low.
+let saveTimer = null;
+function saveSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 400);
+}
+
+// Best effort when the page is closed or refreshed
+window.addEventListener('pagehide', save);
 
 document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') {
