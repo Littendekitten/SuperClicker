@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocs, setDoc, writeBatch, collection, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
@@ -327,6 +327,9 @@ function showScreen(screenId) {
     document.getElementById(screenId).classList.remove('hidden');
     if (screenId === 'settings-screen') {
         fillSettings();
+    }
+    if (screenId === 'leaderboard-screen') {
+        loadLeaderboard();
     }
     updateDisplay();
 }
@@ -1349,15 +1352,40 @@ function saveData(pointsValue, chopsticksValue, slotsList) {
     };
 }
 
+// The leaderboard entry is a tiny public copy of your name and points.
+// It is written together with your save, but at most every 30 seconds
+// (and always when you change your name or leave the page) to keep writes low.
+const BOARD_EVERY = 30000;
+let lastBoardWrite = -BOARD_EVERY;
+let boardForce = true;
+
 async function save() {
     if (!currentUser || !unsaved) {
         return;
     }
     unsaved = false;
+    const uid = currentUser.uid;
+    const withBoard = boardForce || performance.now() - lastBoardWrite >= BOARD_EVERY;
+    boardForce = false;
     try {
-        await setDoc(doc(db, 'users', currentUser.uid), saveData(points, chopsticks, inventory));
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', uid), saveData(points, chopsticks, inventory));
+        if (withBoard) {
+            batch.set(doc(db, 'leaderboard', uid), {
+                name: playerName,
+                points: Math.round(points * 100) / 100,
+                savedAt: serverTimestamp()
+            });
+        }
+        await batch.commit();
+        if (withBoard) {
+            lastBoardWrite = performance.now();
+        }
     } catch (error) {
         unsaved = true; // try again next time
+        if (withBoard) {
+            boardForce = true;
+        }
         console.error('Save failed:', error);
     }
 }
@@ -1374,10 +1402,14 @@ function saveSoon() {
 }
 
 // Best effort when the page is closed or refreshed
-window.addEventListener('pagehide', save);
+window.addEventListener('pagehide', function () {
+    boardForce = true;
+    save();
+});
 
 document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') {
+        boardForce = true;
         save();
     }
 });
@@ -1397,6 +1429,7 @@ document.getElementById('login-btn').addEventListener('click', async function ()
 });
 
 document.getElementById('logout-btn').addEventListener('click', async function () {
+    boardForce = true;
     await save();          // don't lose progress
     await signOut(auth);
 });
@@ -1424,6 +1457,9 @@ onAuthStateChanged(auth, async function (user) {
                 unsaved = false;
             }
             currentUser = user;
+            boardForce = true;
+            unsaved = true;   // puts you on the leaderboard
+            saveSoon();
             showName();
             showScreen('menu-screen');
         } catch (error) {
@@ -1510,6 +1546,7 @@ function saveName() {
     document.getElementById('name-input').value = name;
     showName();
     unsaved = true;
+    boardForce = true;
     saveSoon();
     setMessage('name-msg', 'Saved!', 'good');
 }
@@ -1669,6 +1706,56 @@ document.getElementById('code-input').addEventListener('keydown', function (even
         redeemCode();
     }
 });
+
+// =====================================================================
+//  LEADERBOARD: top 10 by points
+// =====================================================================
+let boardLoading = false;
+
+async function loadLeaderboard() {
+    if (boardLoading) {
+        return;
+    }
+    boardLoading = true;
+    const list = document.getElementById('board-list');
+    const status = document.getElementById('board-status');
+    status.innerText = 'Loading...';
+    try {
+        // Make sure your own latest points are on the board first
+        boardForce = true;
+        unsaved = true;
+        await save();
+
+        const snap = await getDocs(query(collection(db, 'leaderboard'), orderBy('points', 'desc'), limit(10)));
+        list.innerHTML = '';
+        let rank = 0;
+        snap.forEach(function (entry) {
+            rank = rank + 1;
+            const data = entry.data();
+            const row = document.createElement('div');
+            row.className = 'item board-row' + (currentUser && entry.id === currentUser.uid ? ' me' : '');
+            const place = document.createElement('span');
+            place.className = 'board-rank';
+            place.innerText = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '#' + rank;
+            const name = document.createElement('span');
+            name.className = 'item-name board-name';
+            name.innerText = cleanName(data.name) || 'Player';
+            const score = document.createElement('span');
+            score.className = 'points-text';
+            score.innerText = format(Number(data.points) || 0);
+            row.append(place, name, score);
+            list.appendChild(row);
+        });
+        status.innerText = rank === 0 ? 'Nobody is on the board yet.' : 'Your points: ' + format(points);
+    } catch (error) {
+        console.error('Leaderboard failed:', error);
+        status.innerText = 'Could not load the leaderboard.';
+    } finally {
+        boardLoading = false;
+    }
+}
+
+document.getElementById('board-refresh').addEventListener('click', loadLeaderboard);
 
 // =====================================================================
 //  BUTTONS
