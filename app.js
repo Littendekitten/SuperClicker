@@ -36,6 +36,10 @@ const SPAWN_EVERY = 2;     // seconds between sushi from one rice cooker
 const MAX_SUSHI = 80;      // safety limit so the page never gets slow
 const MAX_AGE = 60;        // sushi older than this many seconds disappears (stops endless loops)
 
+// The anvil: a one-time unlock in the shop (merging tiles comes later)
+const ANVIL_COST = 500;
+const MAX_PER_KIND = 9999; // most of one tile you can own
+
 // The pieces you can place.
 //   baseCost: price of the first one      growth: how much each extra one costs more
 //   bonus:    how much value a topping adds to sushi that passes through
@@ -51,6 +55,10 @@ const TOOL_BY_ID = {};
 for (const t of TOOLS) {
     TOOL_BY_ID[t.id] = t;
 }
+// Every tile you can own (everything except the Remove tool)
+const TILES = TOOLS.filter(function (t) {
+    return t.id !== 'remove';
+});
 
 // Directions: 0 = right, 1 = down, 2 = left, 3 = up
 const DX = [1, 0, -1, 0];
@@ -63,6 +71,9 @@ const ARROWS = ['→', '↓', '←', '↑'];
 let points = 0;
 let chopsticks = 0;      // how many Chopsticks you own
 let grid = [];           // the factory: COLS * ROWS squares, each null or { kind, dir }
+let inventory = {};      // tiles you own but have not placed: { belt: 3, fish: 1, ... }
+let anvil = false;       // true once you unlocked the anvil
+let buyAmount = 1;       // the shop buys this many at a time
 let sushi = [];          // all the sushi currently on the belts
 let timers = {};         // per rice cooker: seconds since its last sushi
 let salesLog = [];       // recent sales, used to show "per second"
@@ -80,9 +91,19 @@ function emptyGrid() {
     return new Array(COLS * ROWS).fill(null);
 }
 
+function emptyInventory() {
+    const result = {};
+    for (const def of TILES) {
+        result[def.id] = 0;
+    }
+    return result;
+}
+
 function resetGame() {
     points = 0;
     chopsticks = 0;
+    anvil = false;
+    inventory = emptyInventory();
     grid = emptyGrid();
     sushi = [];
     timers = {};
@@ -123,9 +144,24 @@ function placedCount(kind) {
     return n;
 }
 
+// Everything you own of one kind: in the inventory plus placed on the factory
+function ownedCount(kind) {
+    return (inventory[kind] || 0) + placedCount(kind);
+}
+
 // Price of the next piece of this kind. More pieces owned = more expensive.
 function toolCost(def) {
-    return Math.ceil(def.baseCost * Math.pow(def.growth, placedCount(def.id)));
+    return Math.ceil(def.baseCost * Math.pow(def.growth, ownedCount(def.id)));
+}
+
+// Price of buying "amount" pieces in a row
+function priceFor(def, amount) {
+    const owned = ownedCount(def.id);
+    let total = 0;
+    for (let i = 0; i < amount; i++) {
+        total = total + Math.ceil(def.baseCost * Math.pow(def.growth, owned + i));
+    }
+    return total;
 }
 
 // Sales in the last 10 seconds, averaged to "points per second"
@@ -226,22 +262,154 @@ function updateDisplay() {
     document.getElementById('chopsticks-cost').innerText = format(cost);
     document.getElementById('chopsticks-btn').disabled = points < cost;
 
-    // Toolbar: price on each piece, highlight the selected one
+    // Toolbar: how many you have of each piece, highlight the selected one
     for (const def of TOOLS) {
         const button = toolButtons[def.id];
-        const priceLabel = button.querySelector('.tool-cost');
+        const label = button.querySelector('.tool-cost');
         if (def.id === 'remove') {
-            priceLabel.innerText = 'refund';
+            label.innerText = 'take back';
             button.classList.remove('poor');
         } else {
-            const price = toolCost(def);
-            priceLabel.innerText = format(price);
-            button.classList.toggle('poor', points < price);
+            const stock = inventory[def.id] || 0;
+            label.innerText = 'x' + format(stock);
+            button.classList.toggle('poor', stock === 0);
         }
         button.classList.toggle('selected', tool === def.id);
     }
     document.getElementById('rotate-arrow').innerText = ARROWS[rotation];
+
+    document.getElementById('anvil-btn').classList.toggle('hidden', !anvil);
+    updateShop();
+    updateInventory();
 }
+
+// =====================================================================
+//  THE SHOP: buy tiles (they go to your inventory) and unlock the anvil
+// =====================================================================
+const shopRows = {}; // tile id (or 'anvil') -> { sub, button }
+
+function addShopRow(id, emoji, name, hint, onBuy) {
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.innerHTML =
+        '<span class="item-emoji">' + emoji + '</span>' +
+        '<span class="item-info"><span class="item-name">' + name + '</span>' +
+        '<span class="item-sub"></span></span>';
+    const button = document.createElement('button');
+    button.className = 'item-buy';
+    button.addEventListener('click', onBuy);
+    row.appendChild(button);
+    document.getElementById('shop-list').appendChild(row);
+    shopRows[id] = { sub: row.querySelector('.item-sub'), hint: hint, button: button };
+}
+
+function buildShop() {
+    for (const def of TILES) {
+        addShopRow(def.id, def.emoji, def.name, def.hint, function () {
+            buyTile(def);
+        });
+    }
+    addShopRow('anvil', '⚒️', 'Anvil', 'Unlocks merging tiles (coming soon)', buyAnvil);
+
+    for (const button of document.querySelectorAll('.amount-btn')) {
+        button.addEventListener('click', function () {
+            buyAmount = Number(button.dataset.amount);
+            displayDirty = true;
+        });
+    }
+}
+
+function updateShop() {
+    document.getElementById('shop-score').innerText = format(points);
+
+    for (const button of document.querySelectorAll('.amount-btn')) {
+        button.classList.toggle('selected', Number(button.dataset.amount) === buyAmount);
+    }
+
+    for (const def of TILES) {
+        const row = shopRows[def.id];
+        const price = priceFor(def, buyAmount);
+        row.sub.innerText = def.hint + ' (you own ' + format(ownedCount(def.id)) + ')';
+        row.button.innerText = 'Buy ' + buyAmount + ': ' + format(price);
+        row.button.disabled = points < price || ownedCount(def.id) + buyAmount > MAX_PER_KIND;
+    }
+
+    const anvilRow = shopRows.anvil;
+    anvilRow.sub.innerText = anvilRow.hint;
+    if (anvil) {
+        anvilRow.button.innerText = 'Unlocked ✓';
+        anvilRow.button.disabled = true;
+    } else {
+        anvilRow.button.innerText = 'Unlock: ' + format(ANVIL_COST);
+        anvilRow.button.disabled = points < ANVIL_COST;
+    }
+}
+
+function buyTile(def) {
+    const price = priceFor(def, buyAmount);
+    if (points < price || ownedCount(def.id) + buyAmount > MAX_PER_KIND) {
+        return;
+    }
+    points = points - price;
+    inventory[def.id] = (inventory[def.id] || 0) + buyAmount;
+    unsaved = true;
+    displayDirty = true;
+}
+
+function buyAnvil() {
+    if (anvil || points < ANVIL_COST) {
+        return;
+    }
+    points = points - ANVIL_COST;
+    anvil = true;
+    unsaved = true;
+    displayDirty = true;
+}
+
+// =====================================================================
+//  THE INVENTORY: every tile you own, exactly
+// =====================================================================
+const inventoryRows = {}; // tile id -> { stock, placed, total }
+
+function buildInventory() {
+    const list = document.getElementById('inventory-list');
+    for (const def of TILES) {
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML =
+            '<span class="item-emoji">' + def.emoji + '</span>' +
+            '<span class="item-info"><span class="item-name">' + def.name + '</span></span>' +
+            '<span class="item-counts">' +
+            '<span><b class="n-stock">0</b>in bag</span>' +
+            '<span><b class="n-placed">0</b>placed</span>' +
+            '<span class="total"><b class="n-total">0</b>total</span>' +
+            '</span>';
+        list.appendChild(row);
+        inventoryRows[def.id] = {
+            stock: row.querySelector('.n-stock'),
+            placed: row.querySelector('.n-placed'),
+            total: row.querySelector('.n-total')
+        };
+    }
+}
+
+function updateInventory() {
+    let everything = 0;
+    for (const def of TILES) {
+        const stock = inventory[def.id] || 0;
+        const placed = placedCount(def.id);
+        const row = inventoryRows[def.id];
+        row.stock.innerText = format(stock);
+        row.placed.innerText = format(placed);
+        row.total.innerText = format(stock + placed);
+        everything = everything + stock + placed;
+    }
+    document.getElementById('inventory-total').innerText =
+        format(everything) + (everything === 1 ? ' tile' : ' tiles') + ' in total';
+}
+
+buildShop();
+buildInventory();
 
 // =====================================================================
 //  ANTI-AUTOCLICKER
@@ -337,12 +505,11 @@ function clickSquare(x, y) {
     const index = y * COLS + x;
     const cell = grid[index];
 
-    // Remove tool: take the piece back and refund it
+    // Remove tool: the piece goes back into your inventory
     if (tool === 'remove') {
         if (cell) {
-            const def = TOOL_BY_ID[cell.kind];
-            grid[index] = null; // remove first, so the price below is the price of the LAST one you bought
-            points = points + toolCost(def);
+            grid[index] = null;
+            inventory[cell.kind] = (inventory[cell.kind] || 0) + 1;
             unsaved = true;
             displayDirty = true;
         }
@@ -361,14 +528,13 @@ function clickSquare(x, y) {
         return;
     }
 
-    // Empty square: place the piece if you can afford it
+    // Empty square: place the piece if you have one in your inventory
     const def = TOOL_BY_ID[tool];
-    const price = toolCost(def);
-    if (points < price) {
-        showMessage('You need ' + format(price) + ' points for a ' + def.name.toLowerCase() + '.');
+    if ((inventory[tool] || 0) < 1) {
+        showMessage('You have no ' + def.name.toLowerCase() + '. Buy some in the Shop.');
         return;
     }
-    points = points - price;
+    inventory[tool] = inventory[tool] - 1;
     grid[index] = { kind: tool, dir: rotation };
     unsaved = true;
     displayDirty = true;
@@ -655,14 +821,15 @@ function drawSushi(cx, cy, value) {
 function draw() {
     requestAnimationFrame(draw);
 
-    // Nothing to draw while another screen is showing
-    if (document.getElementById('game-screen').classList.contains('hidden')) {
-        return;
-    }
-
+    // Keep the numbers fresh on every screen (shop and inventory too)
     if (displayDirty) {
         updateDisplay();
         displayDirty = false;
+    }
+
+    // Nothing to draw while another screen is showing
+    if (document.getElementById('game-screen').classList.contains('hidden')) {
+        return;
     }
 
     const time = performance.now() / 1000;
@@ -783,6 +950,25 @@ function listToGrid(list) {
     return result;
 }
 
+function inventoryToSave() {
+    const result = {};
+    for (const def of TILES) {
+        result[def.id] = Math.floor(inventory[def.id] || 0);
+    }
+    return result;
+}
+
+function inventoryFromSave(saved) {
+    const result = emptyInventory();
+    if (saved && typeof saved === 'object') {
+        for (const def of TILES) {
+            const n = Math.floor(Number(saved[def.id]) || 0);
+            result[def.id] = Math.min(Math.max(n, 0), MAX_PER_KIND);
+        }
+    }
+    return result;
+}
+
 async function save() {
     if (!currentUser || !unsaved) {
         return;
@@ -794,6 +980,8 @@ async function save() {
             points: Math.round(points * 100) / 100, // keep 2 decimals
             chopsticks: chopsticks,
             factory: gridToList(),
+            inventory: inventoryToSave(),
+            anvil: anvil,
             savedAt: serverTimestamp() // Google's clock, not the player's
         });
     } catch (error) {
@@ -841,6 +1029,8 @@ onAuthStateChanged(auth, async function (user) {
                 // Older saves kept this inside "owned"
                 chopsticks = Number(data.chopsticks) || Number(data.owned && data.owned.chopsticks) || 0;
                 grid = listToGrid(data.factory);
+                inventory = inventoryFromSave(data.inventory); // older saves have none: starts empty
+                anvil = data.anvil === true;
                 unsaved = false;
             } else {
                 // New player: create their document right away, empty.
@@ -849,6 +1039,8 @@ onAuthStateChanged(auth, async function (user) {
                     points: 0,
                     chopsticks: 0,
                     factory: gridToList(),
+                    inventory: inventoryToSave(),
+                    anvil: false,
                     savedAt: serverTimestamp()
                 });
                 unsaved = false;
