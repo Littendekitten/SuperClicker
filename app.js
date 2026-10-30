@@ -37,7 +37,7 @@ const MAX_SUSHI = 80;      // safety limit so the page never gets slow
 const MAX_AGE = 60;        // sushi older than this many seconds disappears (stops endless loops)
 
 // The anvil: a one-time unlock in the shop (merging tiles comes later)
-const ANVIL_COST = 500;
+const ANVIL_COST = 100000000; // 100 million
 const MAX_PER_KIND = 9999; // most of one tile you can own
 
 // The pieces you can place.
@@ -717,7 +717,15 @@ const ctx = canvas.getContext('2d');
 canvas.width = COLS * CELL * RES;
 canvas.height = ROWS * CELL * RES;
 
-const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+// Noto Color Emoji is the ChromeOS emoji set. style.css loads it from Google Fonts,
+// so every device shows the same emojis.
+const EMOJI_FONT = '"Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+
+// Canvas only uses a font that is already loaded, so ask for it up front
+if (document.fonts && document.fonts.load) {
+    const allEmoji = TOOLS.map(function (t) { return t.emoji; }).join('') + '⚒️🛒🎒';
+    document.fonts.load('28px "Noto Color Emoji"', allEmoji).catch(function () {});
+}
 
 function roundedRect(x, y, w, h, r) {
     ctx.beginPath();
