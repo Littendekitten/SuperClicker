@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
@@ -40,25 +40,53 @@ const MAX_AGE = 60;        // sushi older than this many seconds disappears (sto
 const ANVIL_COST = 100000000; // 100 million
 const MAX_PER_KIND = 9999; // most of one tile you can own
 
-// The pieces you can place.
+// The inventory: slots like in Minecraft. The first 9 slots are the hotbar.
+const INV_SLOTS = 36;      // 4 rows of 9
+const HOTBAR = 9;
+const MAX_STACK = 999;     // most items in one slot
+
+// Player name and screen size (the game is drawn 20% smaller by default)
+const MAX_NAME = 24;
+const DEFAULT_SCALE = 80;  // percent
+const MIN_SCALE = 50;
+const MAX_SCALE = 150;
+
+// The pieces you can place (you buy them in the Shop).
 //   baseCost: price of the first one      growth: how much each extra one costs more
 //   bonus:    how much value a topping adds to sushi that passes through
-const TOOLS = [
+const TILES = [
     { id: 'belt',   name: 'Belt',            emoji: '➡️',  baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
     { id: 'source', name: 'Rice cooker',     emoji: '🍚',  baseCost: 20,  growth: 1.15, hint: 'Makes a sushi every 2 seconds' },
     { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  baseCost: 40,  growth: 1.15, hint: 'Sushi passing by is worth +2', bonus: 2 },
     { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', baseCost: 120, growth: 1.15, hint: 'Sushi passing by is worth +5', bonus: 5 },
     { id: 'exit',   name: 'Serving counter', emoji: '🏮',  baseCost: 10,  growth: 1,    hint: 'Sells sushi for its value' },
-    { id: 'remove', name: 'Remove',          emoji: '🗑️',  baseCost: 0,   growth: 1,    hint: 'Click a piece to take it back for a full refund' },
 ];
-const TOOL_BY_ID = {};
-for (const t of TOOLS) {
-    TOOL_BY_ID[t.id] = t;
+
+// Equipable items: you put them ON a piece you already placed (they are not bought with points).
+//   applies:    which pieces they can go on      multiplier: how much the piece earns
+const EQUIPS = [
+    {
+        id: 'golden_soy_sauce', name: 'Golden soy sauce', emoji: '🍶', golden: true,
+        multiplier: 2, applies: ['source', 'fish', 'chef', 'exit'],
+        hint: 'Click a rice cooker, fish, chef or serving counter in the factory to make it golden: it earns 2x'
+    },
+];
+
+// The Remove tool is not an item, it is a button next to the hotbar
+const REMOVE_TOOL = {
+    id: 'remove', name: 'Remove', emoji: '🗑️',
+    hint: 'Click a piece to take it back. A golden piece gives back its soy sauce first.'
+};
+
+const TILE_BY_ID = {};
+const ITEM_BY_ID = {};   // tiles and equipables
+for (const t of TILES) {
+    TILE_BY_ID[t.id] = t;
+    ITEM_BY_ID[t.id] = t;
 }
-// Every tile you can own (everything except the Remove tool)
-const TILES = TOOLS.filter(function (t) {
-    return t.id !== 'remove';
-});
+for (const e of EQUIPS) {
+    ITEM_BY_ID[e.id] = e;
+}
 
 // Directions: 0 = right, 1 = down, 2 = left, 3 = up
 const DX = [1, 0, -1, 0];
@@ -71,7 +99,7 @@ const ARROWS = ['→', '↓', '←', '↑'];
 let points = 0;
 let chopsticks = 0;      // how many Chopsticks you own
 let grid = [];           // the factory: COLS * ROWS squares, each null or { kind, dir }
-let inventory = {};      // tiles you own but have not placed: { belt: 3, fish: 1, ... }
+let inventory = [];      // INV_SLOTS slots, each null or { id, n }. Slots 0-8 are the hotbar.
 let anvil = false;       // true once you unlocked the anvil
 let buyAmount = 1;       // the shop buys this many at a time
 let sushi = [];          // all the sushi currently on the belts
@@ -79,7 +107,10 @@ let timers = {};         // per rice cooker: seconds since its last sushi
 let salesLog = [];       // recent sales, used to show "per second"
 let effects = [];        // little "+5" popups
 
-let tool = 'belt';       // the piece you have selected
+let hotbarSel = 0;        // which hotbar slot (0-8) is selected
+let removeMode = false;  // true while the Remove tool is selected
+let invSel = null;       // the slot picked up on the inventory screen
+let playerName = '';     // your username
 let rotation = 0;        // the direction new belts / rice cookers will face
 let hover = null;        // the square the mouse is over
 
@@ -92,17 +123,16 @@ function emptyGrid() {
 }
 
 function emptyInventory() {
-    const result = {};
-    for (const def of TILES) {
-        result[def.id] = 0;
-    }
-    return result;
+    return new Array(INV_SLOTS).fill(null);
 }
 
 function resetGame() {
     points = 0;
     chopsticks = 0;
     anvil = false;
+    hotbarSel = 0;
+    removeMode = false;
+    invSel = null;
     inventory = emptyInventory();
     grid = emptyGrid();
     sushi = [];
@@ -146,7 +176,109 @@ function placedCount(kind) {
 
 // Everything you own of one kind: in the inventory plus placed on the factory
 function ownedCount(kind) {
-    return (inventory[kind] || 0) + placedCount(kind);
+    return countInSlots(inventory, kind) + placedCount(kind);
+}
+
+// ---- Inventory slots. Every helper takes the slot list, so it also works on a copy.
+function countInSlots(slots, id) {
+    let n = 0;
+    for (const s of slots) {
+        if (s && s.id === id) {
+            n = n + s.n;
+        }
+    }
+    return n;
+}
+
+function cloneSlots(slots) {
+    return slots.map(function (s) {
+        return s ? { id: s.id, n: s.n } : null;
+    });
+}
+
+// Is there room for n more of this item?
+function roomFor(slots, id, n) {
+    let room = 0;
+    for (const s of slots) {
+        if (!s) {
+            room = room + MAX_STACK;
+        } else if (s.id === id) {
+            room = room + MAX_STACK - s.n;
+        }
+    }
+    return room >= n;
+}
+
+// Adds n items: tops up existing stacks first, then uses the first empty slots.
+// All or nothing: returns false (and changes nothing) when there is no room.
+function addToSlots(slots, id, n) {
+    if (!roomFor(slots, id, n)) {
+        return false;
+    }
+    for (const s of slots) {
+        if (n > 0 && s && s.id === id && s.n < MAX_STACK) {
+            const add = Math.min(n, MAX_STACK - s.n);
+            s.n = s.n + add;
+            n = n - add;
+        }
+    }
+    for (let i = 0; i < slots.length && n > 0; i++) {
+        if (!slots[i]) {
+            const add = Math.min(n, MAX_STACK);
+            slots[i] = { id: id, n: add };
+            n = n - add;
+        }
+    }
+    return true;
+}
+
+// Uses up one item from a slot (placing a piece)
+function useFromSlot(i) {
+    inventory[i].n = inventory[i].n - 1;
+    if (inventory[i].n <= 0) {
+        inventory[i] = null;
+    }
+}
+
+// Moves things between two slots, like in Minecraft:
+// empty slot = move, same item = merge, different item = swap.
+// one = true moves just a single item (right click).
+function moveSlot(from, to, one) {
+    if (from === to || !inventory[from]) {
+        return;
+    }
+    const a = inventory[from];
+    const b = inventory[to];
+
+    if (one) {
+        if (!b) {
+            inventory[to] = { id: a.id, n: 1 };
+        } else if (b.id === a.id && b.n < MAX_STACK) {
+            b.n = b.n + 1;
+        } else {
+            return; // can't put one onto a different item
+        }
+        a.n = a.n - 1;
+        if (a.n <= 0) {
+            inventory[from] = null;
+        }
+    } else if (!b) {
+        inventory[to] = a;
+        inventory[from] = null;
+    } else if (b.id === a.id) {
+        const moved = Math.min(MAX_STACK - b.n, a.n);
+        b.n = b.n + moved;
+        a.n = a.n - moved;
+        if (a.n <= 0) {
+            inventory[from] = null;
+        }
+    } else {
+        inventory[from] = b;
+        inventory[to] = a;
+    }
+    unsaved = true;
+    displayDirty = true;
+    saveSoon();
 }
 
 // Price of the next piece of this kind. More pieces owned = more expensive.
@@ -179,37 +311,66 @@ function pointsPerSecond() {
 // =====================================================================
 //  SCREENS
 // =====================================================================
+let currentScreen = 'loading-screen';
+let settingsReturn = 'menu-screen'; // where the Back button in Settings goes
+
 function showScreen(screenId) {
+    if (screenId === 'settings-screen' && currentScreen !== 'settings-screen') {
+        settingsReturn = currentScreen;
+    }
+    currentScreen = screenId;
+    invSel = null;
     const screens = document.querySelectorAll('.screen');
     for (const screen of screens) {
         screen.classList.add('hidden');
     }
     document.getElementById(screenId).classList.remove('hidden');
+    if (screenId === 'settings-screen') {
+        fillSettings();
+    }
     updateDisplay();
 }
 
 // =====================================================================
-//  THE TOOLBAR (built once from the TOOLS list)
+//  THE HOTBAR (the first 9 inventory slots) + Remove and Rotate
 // =====================================================================
-const toolButtons = {}; // tool id -> its button
+const hotbarParts = [];  // one { button, emoji, count } per hotbar slot
+let removeButton = null;
 
 function buildToolbar() {
-    const bar = document.getElementById('toolbar');
-    for (const def of TOOLS) {
+    const hotbar = document.getElementById('hotbar');
+    for (let i = 0; i < HOTBAR; i++) {
         const button = document.createElement('button');
-        button.className = 'tool';
-        button.title = def.hint;
+        button.className = 'slot';
         button.innerHTML =
-            '<span class="tool-emoji">' + def.emoji + '</span>' +
-            '<span class="tool-name">' + def.name + '</span>' +
-            '<span class="tool-cost"></span>';
+            '<span class="slot-key">' + (i + 1) + '</span>' +
+            '<span class="slot-emoji"></span>' +
+            '<span class="slot-count"></span>';
         button.addEventListener('click', function () {
-            tool = def.id;
-            displayDirty = true;
+            selectHotbar(i);
         });
-        bar.appendChild(button);
-        toolButtons[def.id] = button;
+        hotbar.appendChild(button);
+        hotbarParts.push({
+            button: button,
+            emoji: button.querySelector('.slot-emoji'),
+            count: button.querySelector('.slot-count')
+        });
     }
+
+    const bar = document.getElementById('tool-buttons');
+
+    removeButton = document.createElement('button');
+    removeButton.className = 'tool';
+    removeButton.title = REMOVE_TOOL.hint;
+    removeButton.innerHTML =
+        '<span class="tool-emoji">' + REMOVE_TOOL.emoji + '</span>' +
+        '<span class="tool-name">Remove</span>' +
+        '<span class="tool-cost">take back</span>';
+    removeButton.addEventListener('click', function () {
+        removeMode = !removeMode;
+        displayDirty = true;
+    });
+    bar.appendChild(removeButton);
 
     const rotate = document.createElement('button');
     rotate.className = 'tool';
@@ -224,18 +385,38 @@ function buildToolbar() {
 }
 buildToolbar();
 
+function selectHotbar(i) {
+    hotbarSel = i;
+    removeMode = false;
+    displayDirty = true;
+}
+
 function rotatePieces() {
     rotation = (rotation + 1) % 4;
     displayDirty = true;
 }
 
-// Press R to rotate (only while you're in the game)
+// Keys: R rotates, 1-9 pick a hotbar slot (only while you're in the game)
 document.addEventListener('keydown', function (event) {
     const inGame = !document.getElementById('game-screen').classList.contains('hidden');
-    if (inGame && (event.key === 'r' || event.key === 'R')) {
+    if (!inGame) {
+        return;
+    }
+    if (event.key === 'r' || event.key === 'R') {
         rotatePieces();
+    } else if (event.key >= '1' && event.key <= '9') {
+        selectHotbar(Number(event.key) - 1);
     }
 });
+
+// Draws one inventory slot (used by the hotbar and the inventory screen)
+function paintSlot(parts, stack) {
+    const def = stack ? ITEM_BY_ID[stack.id] : null;
+    parts.emoji.innerText = def ? def.emoji : '';
+    parts.count.innerText = stack && stack.n > 1 ? String(stack.n) : '';
+    parts.button.classList.toggle('golden', !!(def && def.golden));
+    parts.button.title = def ? def.name + (stack.n > 1 ? ' x' + stack.n : '') : 'Empty slot';
+}
 
 // A short message under the factory ("Need 20 points...")
 let messageTimer = null;
@@ -262,21 +443,24 @@ function updateDisplay() {
     document.getElementById('chopsticks-cost').innerText = format(cost);
     document.getElementById('chopsticks-btn').disabled = points < cost;
 
-    // Toolbar: how many you have of each piece, highlight the selected one
-    for (const def of TOOLS) {
-        const button = toolButtons[def.id];
-        const label = button.querySelector('.tool-cost');
-        if (def.id === 'remove') {
-            label.innerText = 'take back';
-            button.classList.remove('poor');
-        } else {
-            const stock = inventory[def.id] || 0;
-            label.innerText = 'x' + format(stock);
-            button.classList.toggle('poor', stock === 0);
-        }
-        button.classList.toggle('selected', tool === def.id);
+    // Hotbar: the first 9 inventory slots
+    for (let i = 0; i < HOTBAR; i++) {
+        paintSlot(hotbarParts[i], inventory[i]);
+        hotbarParts[i].button.classList.toggle('selected', !removeMode && hotbarSel === i);
     }
+    removeButton.classList.toggle('selected', removeMode);
     document.getElementById('rotate-arrow').innerText = ARROWS[rotation];
+
+    // What the selected thing does
+    const held = inventory[hotbarSel];
+    let info = 'Empty slot. Open the Inventory to put something here.';
+    if (removeMode) {
+        info = REMOVE_TOOL.emoji + ' ' + REMOVE_TOOL.name + ': ' + REMOVE_TOOL.hint;
+    } else if (held) {
+        const def = ITEM_BY_ID[held.id];
+        info = def.emoji + ' ' + def.name + ': ' + def.hint;
+    }
+    document.getElementById('held-info').innerText = info;
 
     document.getElementById('anvil-btn').classList.toggle('hidden', !anvil);
     updateShop();
@@ -329,9 +513,10 @@ function updateShop() {
     for (const def of TILES) {
         const row = shopRows[def.id];
         const price = priceFor(def, buyAmount);
+        const room = roomFor(inventory, def.id, buyAmount);
         row.sub.innerText = def.hint + ' (you own ' + format(ownedCount(def.id)) + ')';
-        row.button.innerText = 'Buy ' + buyAmount + ': ' + format(price);
-        row.button.disabled = points < price || ownedCount(def.id) + buyAmount > MAX_PER_KIND;
+        row.button.innerText = room ? 'Buy ' + buyAmount + ': ' + format(price) : 'Inventory full';
+        row.button.disabled = points < price || !room || ownedCount(def.id) + buyAmount > MAX_PER_KIND;
     }
 
     const anvilRow = shopRows.anvil;
@@ -350,8 +535,10 @@ function buyTile(def) {
     if (points < price || ownedCount(def.id) + buyAmount > MAX_PER_KIND) {
         return;
     }
+    if (!addToSlots(inventory, def.id, buyAmount)) {
+        return; // no room in the inventory
+    }
     points = points - price;
-    inventory[def.id] = (inventory[def.id] || 0) + buyAmount;
     unsaved = true;
     displayDirty = true;
     saveSoon();
@@ -369,45 +556,123 @@ function buyAnvil() {
 }
 
 // =====================================================================
-//  THE INVENTORY: every tile you own, exactly
+//  THE INVENTORY: slots like in Minecraft
 // =====================================================================
-const inventoryRows = {}; // tile id -> { stock, placed, total }
+// Click a stack, then click another slot: empty = move, same item = merge,
+// different item = swap. Right-click moves just one. You can also drag.
+const invParts = [];   // one { button, emoji, count } per slot
+let dragFrom = null;
+
+function slotClicked(i, one) {
+    if (invSel === null) {
+        if (inventory[i]) {
+            invSel = i;
+        }
+    } else if (invSel === i) {
+        invSel = null;
+    } else {
+        const from = invSel;
+        moveSlot(from, i, one);
+        // Right-clicking keeps the stack selected, so you can drop several one by one
+        if (!(one && inventory[from])) {
+            invSel = null;
+        }
+    }
+    displayDirty = true;
+}
 
 function buildInventory() {
-    const list = document.getElementById('inventory-list');
-    for (const def of TILES) {
-        const row = document.createElement('div');
-        row.className = 'item';
-        row.innerHTML =
-            '<span class="item-emoji">' + def.emoji + '</span>' +
-            '<span class="item-info"><span class="item-name">' + def.name + '</span></span>' +
-            '<span class="item-counts">' +
-            '<span><b class="n-stock">0</b>in bag</span>' +
-            '<span><b class="n-placed">0</b>placed</span>' +
-            '<span class="total"><b class="n-total">0</b>total</span>' +
-            '</span>';
-        list.appendChild(row);
-        inventoryRows[def.id] = {
-            stock: row.querySelector('.n-stock'),
-            placed: row.querySelector('.n-placed'),
-            total: row.querySelector('.n-total')
-        };
+    const hotbarBox = document.getElementById('inv-hotbar');
+    const bagBox = document.getElementById('inv-bag');
+    for (let i = 0; i < INV_SLOTS; i++) {
+        // A div, not a button: Firefox can't drag buttons
+        const el = document.createElement('div');
+        el.className = 'slot';
+        el.setAttribute('role', 'button');
+        el.tabIndex = 0;
+        el.draggable = true;
+        el.innerHTML = '<span class="slot-emoji"></span><span class="slot-count"></span>';
+
+        el.addEventListener('click', function () {
+            slotClicked(i, false);
+        });
+        el.addEventListener('contextmenu', function (event) {
+            event.preventDefault();
+            slotClicked(i, true);
+        });
+        el.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                slotClicked(i, false);
+            }
+        });
+
+        el.addEventListener('dragstart', function (event) {
+            if (!inventory[i]) {
+                event.preventDefault();
+                return;
+            }
+            dragFrom = i;
+            el.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', String(i)); // Firefox needs this
+        });
+        el.addEventListener('dragover', function (event) {
+            if (dragFrom !== null) {
+                event.preventDefault();
+            }
+        });
+        el.addEventListener('drop', function (event) {
+            event.preventDefault();
+            if (dragFrom !== null) {
+                moveSlot(dragFrom, i, false);
+                invSel = null;
+                displayDirty = true;
+            }
+        });
+        el.addEventListener('dragend', function () {
+            dragFrom = null;
+            el.classList.remove('dragging');
+        });
+
+        (i < HOTBAR ? hotbarBox : bagBox).appendChild(el);
+        invParts.push({
+            button: el,
+            emoji: el.querySelector('.slot-emoji'),
+            count: el.querySelector('.slot-count')
+        });
     }
 }
 
 function updateInventory() {
-    let everything = 0;
-    for (const def of TILES) {
-        const stock = inventory[def.id] || 0;
-        const placed = placedCount(def.id);
-        const row = inventoryRows[def.id];
-        row.stock.innerText = format(stock);
-        row.placed.innerText = format(placed);
-        row.total.innerText = format(stock + placed);
-        everything = everything + stock + placed;
+    if (invSel !== null && !inventory[invSel]) {
+        invSel = null; // the picked-up stack is gone
+    }
+    let stock = 0;
+    for (let i = 0; i < INV_SLOTS; i++) {
+        paintSlot(invParts[i], inventory[i]);
+        invParts[i].button.classList.toggle('selected', invSel === i);
+        if (inventory[i]) {
+            stock = stock + inventory[i].n;
+        }
+    }
+    let placed = 0;
+    for (const cell of grid) {
+        if (cell) {
+            placed = placed + 1;
+        }
     }
     document.getElementById('inventory-total').innerText =
-        format(everything) + (everything === 1 ? ' tile' : ' tiles') + ' in total';
+        format(stock) + (stock === 1 ? ' item' : ' items') + ' in your inventory, ' +
+        format(placed) + ' placed in the factory';
+
+    let text = 'Click a stack, then click another slot to move, merge or swap. ' +
+        'Right-click moves one item. You can drag too. The top row is your hotbar.';
+    if (invSel !== null) {
+        const def = ITEM_BY_ID[inventory[invSel].id];
+        text = def.emoji + ' ' + def.name + ' x' + inventory[invSel].n + ': ' + def.hint;
+    }
+    document.getElementById('inv-info').innerText = text;
 }
 
 buildShop();
@@ -508,21 +773,57 @@ function clickSquare(x, y) {
     const index = y * COLS + x;
     const cell = grid[index];
 
-    // Remove tool: the piece goes back into your inventory
-    if (tool === 'remove') {
-        if (cell) {
+    // Remove tool: golden soy sauce comes off first, then the piece itself
+    if (removeMode) {
+        if (!cell) {
+            return;
+        }
+        if (cell.mod) {
+            if (!addToSlots(inventory, cell.mod, 1)) {
+                showMessage('Your inventory is full.');
+                return;
+            }
+            cell.mod = null;
+        } else {
+            if (!addToSlots(inventory, cell.kind, 1)) {
+                showMessage('Your inventory is full.');
+                return;
+            }
             grid[index] = null;
-            inventory[cell.kind] = (inventory[cell.kind] || 0) + 1;
+        }
+        unsaved = true;
+        displayDirty = true;
+        return;
+    }
+
+    const stack = inventory[hotbarSel];
+    if (!stack) {
+        showMessage('Nothing in this slot. Pick another one, or open the Inventory.');
+        return;
+    }
+    const def = ITEM_BY_ID[stack.id];
+
+    // An equipable item (golden soy sauce): goes ON a piece you already placed
+    if (def.applies) {
+        if (!cell) {
+            showMessage('Click a piece you already placed to use the ' + def.name.toLowerCase() + ' on it.');
+        } else if (!def.applies.includes(cell.kind)) {
+            showMessage('A ' + TILE_BY_ID[cell.kind].name.toLowerCase() + " can't be made golden.");
+        } else if (cell.mod) {
+            showMessage('That piece already has soy sauce on it.');
+        } else {
+            cell.mod = def.id;
+            useFromSlot(hotbarSel);
             unsaved = true;
             displayDirty = true;
         }
         return;
     }
 
-    // Square already has something on it
+    // A piece
     if (cell) {
-        // Clicking a belt or rice cooker with the same tool turns it
-        if (cell.kind === tool && (tool === 'belt' || tool === 'source')) {
+        // Clicking a belt or rice cooker with the same piece turns it
+        if (cell.kind === def.id && (def.id === 'belt' || def.id === 'source')) {
             cell.dir = rotation;
             unsaved = true;
         } else {
@@ -530,15 +831,8 @@ function clickSquare(x, y) {
         }
         return;
     }
-
-    // Empty square: place the piece if you have one in your inventory
-    const def = TOOL_BY_ID[tool];
-    if ((inventory[tool] || 0) < 1) {
-        showMessage('You have no ' + def.name.toLowerCase() + '. Buy some in the Shop.');
-        return;
-    }
-    inventory[tool] = inventory[tool] - 1;
-    grid[index] = { kind: tool, dir: rotation };
+    grid[index] = { kind: def.id, dir: rotation, mod: null };
+    useFromSlot(hotbarSel);
     unsaved = true;
     displayDirty = true;
 }
@@ -549,7 +843,15 @@ function clickSquare(x, y) {
 // Every sushi is an object: where it is (x, y), where it is heading (tx, ty),
 // how far along it is (p from 0 to 1), and how much it is worth (value).
 
-function trySpawn(sx, sy, dir) {
+// How much a piece earns: 2 when it has golden soy sauce on it, otherwise 1
+function modMultiplier(cell) {
+    if (cell && cell.mod && ITEM_BY_ID[cell.mod]) {
+        return ITEM_BY_ID[cell.mod].multiplier || 1;
+    }
+    return 1;
+}
+
+function trySpawn(sx, sy, dir, value) {
     const tx = sx + DX[dir];
     const ty = sy + DY[dir];
     if (!passable(tx, ty) || sushi.length >= MAX_SUSHI) {
@@ -558,7 +860,7 @@ function trySpawn(sx, sy, dir) {
     sushi.push({
         x: sx, y: sy, tx: tx, ty: ty,
         dx: DX[dir], dy: DY[dir],
-        p: 0, value: 1, age: 0,
+        p: 0, value: value, age: 0,
         seen: [],                          // machines it already passed (each gives its bonus once)
         waiting: false,                    // true when it has reached the end of a belt
         jx: (Math.random() - 0.5) * 0.3,   // small random offset so waiting sushi form a little pile
@@ -592,11 +894,12 @@ function tryDepart(s) {
     }
 }
 
-function sell(s, x, y) {
+function sell(s, x, y, multiplier) {
     const now = performance.now() / 1000;
-    points = points + s.value;
-    salesLog.push({ t: now, v: s.value });
-    effects.push({ x: x, y: y, text: '+' + s.value, age: 0 });
+    const gained = s.value * multiplier;
+    points = points + gained;
+    salesLog.push({ t: now, v: gained });
+    effects.push({ x: x, y: y, text: '+' + gained, age: 0 });
     unsaved = true;
     displayDirty = true;
 }
@@ -612,7 +915,7 @@ function arrive(s) {
         return;
     }
     if (cell.kind === 'exit') {
-        sell(s, s.x, s.y);
+        sell(s, s.x, s.y, modMultiplier(cell));
         s.dead = true;
         return;
     }
@@ -620,7 +923,7 @@ function arrive(s) {
         const index = s.y * COLS + s.x;
         if (!s.seen.includes(index)) {
             s.seen.push(index);
-            s.value = s.value + TOOL_BY_ID[cell.kind].bonus;
+            s.value = s.value + TILE_BY_ID[cell.kind].bonus * modMultiplier(cell);
         }
     }
     tryDepart(s);
@@ -662,7 +965,7 @@ function runFactory(dt) {
             while (timers[i] >= SPAWN_EVERY) {
                 const x = i % COLS;
                 const y = Math.floor(i / COLS);
-                if (trySpawn(x, y, cell.dir)) {
+                if (trySpawn(x, y, cell.dir, 1 * modMultiplier(cell))) {
                     timers[i] = timers[i] - SPAWN_EVERY;
                 } else {
                     timers[i] = SPAWN_EVERY; // blocked: make one as soon as there is room
@@ -726,7 +1029,7 @@ const EMOJI_FONT = '"Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", s
 
 // Canvas only uses a font that is already loaded, so ask for it up front
 if (document.fonts && document.fonts.load) {
-    const allEmoji = TOOLS.map(function (t) { return t.emoji; }).join('') + '⚒️🛒🎒';
+    const allEmoji = Object.values(ITEM_BY_ID).map(function (t) { return t.emoji; }).join('') + '⚒️🛒🎒🗑️✨⚙️';
     document.fonts.load('28px "Noto Color Emoji"', allEmoji).catch(function () {});
 }
 
@@ -749,7 +1052,7 @@ function drawEmoji(emoji, cx, cy, size) {
 }
 
 // Draws one piece in the square at (gx, gy)
-function drawPiece(kind, dir, gx, gy, time) {
+function drawPiece(kind, dir, gx, gy, time, mod) {
     const x = gx * CELL;
     const y = gy * CELL;
     const cx = x + CELL / 2;
@@ -786,7 +1089,23 @@ function drawPiece(kind, dir, gx, gy, time) {
     ctx.fillStyle = colours[kind];
     roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
     ctx.fill();
-    drawEmoji(TOOL_BY_ID[kind].emoji, cx, cy, 28);
+    drawEmoji(TILE_BY_ID[kind].emoji, cx, cy, 28);
+
+    // Golden soy sauce: a golden glow, a golden edge and a twinkling sparkle
+    if (mod) {
+        const glow = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
+        glow.addColorStop(0, 'rgba(255, 214, 77, 0.5)');
+        glow.addColorStop(1, 'rgba(255, 160, 30, 0.2)');
+        ctx.fillStyle = glow;
+        roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
+        ctx.fill();
+        ctx.strokeStyle = '#ffd34d';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * 3 + gx + gy));
+        drawEmoji('✨', x + CELL - 13, y + 13, 14);
+        ctx.globalAlpha = 1;
+    }
 
     // The rice cooker also shows which way it sends sushi
     if (kind === 'source') {
@@ -859,7 +1178,7 @@ function draw() {
     for (let i = 0; i < grid.length; i++) {
         const cell = grid[i];
         if (cell) {
-            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time);
+            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time, cell.mod);
         }
     }
 
@@ -895,13 +1214,25 @@ function draw() {
     // The square under the mouse: outline + a see-through preview of the piece
     if (hover) {
         const cell = cellAt(hover.x, hover.y);
-        if (tool !== 'remove' && !cell) {
+        const stack = inventory[hotbarSel];
+        const def = stack ? ITEM_BY_ID[stack.id] : null;
+        let colour = '#b7e05a';          // green: this will work
+        if (removeMode) {
+            colour = cell ? '#ff9c9c' : 'rgba(246, 243, 234, 0.35)';
+        } else if (!def) {
+            colour = 'rgba(246, 243, 234, 0.35)';
+        } else if (def.applies) {
+            // Equipable: only works on a matching piece with nothing on it yet
+            const works = cell && def.applies.includes(cell.kind) && !cell.mod;
+            colour = works ? '#ffd34d' : '#ff9c9c';
+        } else if (!cell) {
             ctx.globalAlpha = 0.55;
-            drawPiece(tool, rotation, hover.x, hover.y, time);
+            drawPiece(def.id, rotation, hover.x, hover.y, time, null);
             ctx.globalAlpha = 1;
+        } else if (cell.kind !== def.id) {
+            colour = '#ff9c9c';
         }
-        const bad = (tool === 'remove' && cell) || (tool !== 'remove' && cell && cell.kind !== tool);
-        ctx.strokeStyle = bad ? '#ff9c9c' : '#b7e05a';
+        ctx.strokeStyle = colour;
         ctx.lineWidth = 2;
         roundedRect(hover.x * CELL + 2, hover.y * CELL + 2, CELL - 4, CELL - 4, 8);
         ctx.stroke();
@@ -940,9 +1271,13 @@ canvas.addEventListener('click', function (event) {
 //  SAVING
 // =====================================================================
 // The grid is saved as a list of short texts, one per square: "" (empty) or "belt:0".
+// A golden piece adds a third part: "fish:0:golden_soy_sauce".
 function gridToList() {
     return grid.map(function (cell) {
-        return cell ? cell.kind + ':' + cell.dir : '';
+        if (!cell) {
+            return '';
+        }
+        return cell.kind + ':' + cell.dir + (cell.mod ? ':' + cell.mod : '');
     });
 }
 
@@ -955,30 +1290,63 @@ function listToGrid(list) {
         const parts = String(list[i]).split(':');
         const kind = parts[0];
         const dir = Number(parts[1]);
-        if (TOOL_BY_ID[kind] && kind !== 'remove' && dir >= 0 && dir <= 3) {
-            result[i] = { kind: kind, dir: dir };
+        if (TILE_BY_ID[kind] && dir >= 0 && dir <= 3) {
+            const cell = { kind: kind, dir: dir, mod: null };
+            const equip = ITEM_BY_ID[parts[2]];
+            if (equip && equip.applies && equip.applies.includes(kind)) {
+                cell.mod = equip.id;
+            }
+            result[i] = cell;
         }
     }
     return result;
 }
 
+// The inventory is saved as a list of INV_SLOTS short texts: "" (empty) or "belt:12".
 function inventoryToSave() {
-    const result = {};
-    for (const def of TILES) {
-        result[def.id] = Math.floor(inventory[def.id] || 0);
-    }
-    return result;
+    return inventory.map(function (s) {
+        return s ? s.id + ':' + s.n : '';
+    });
 }
 
 function inventoryFromSave(saved) {
     const result = emptyInventory();
-    if (saved && typeof saved === 'object') {
+    if (Array.isArray(saved)) {
+        // The new format: one text per slot
+        for (let i = 0; i < Math.min(saved.length, INV_SLOTS); i++) {
+            const parts = String(saved[i]).split(':');
+            const n = Math.floor(Number(parts[1]));
+            if (ITEM_BY_ID[parts[0]] && n >= 1) {
+                result[i] = { id: parts[0], n: Math.min(n, MAX_STACK) };
+            }
+        }
+    } else if (saved && typeof saved === 'object') {
+        // Old saves: { belt: 3, fish: 1 }. Fill the slots in order, so the hotbar
+        // starts out the way the old toolbar looked.
         for (const def of TILES) {
             const n = Math.floor(Number(saved[def.id]) || 0);
-            result[def.id] = Math.min(Math.max(n, 0), MAX_PER_KIND);
+            const count = Math.min(Math.max(n, 0), MAX_PER_KIND);
+            if (count > 0 && !addToSlots(result, def.id, count)) {
+                console.warn('Not enough inventory room while converting an old save:', def.id);
+            }
         }
     }
     return result;
+}
+
+// Everything that goes into the player's Firestore document
+function saveData(pointsValue, chopsticksValue, slotsList) {
+    return {
+        name: playerName,
+        points: Math.round(pointsValue * 100) / 100, // keep 2 decimals
+        chopsticks: chopsticksValue,
+        factory: gridToList(),
+        inventory: slotsList.map(function (s) {
+            return s ? s.id + ':' + s.n : '';
+        }),
+        anvil: anvil,
+        savedAt: serverTimestamp() // Google's clock, not the player's
+    };
 }
 
 async function save() {
@@ -987,15 +1355,7 @@ async function save() {
     }
     unsaved = false;
     try {
-        await setDoc(doc(db, 'users', currentUser.uid), {
-            name: currentUser.displayName,
-            points: Math.round(points * 100) / 100, // keep 2 decimals
-            chopsticks: chopsticks,
-            factory: gridToList(),
-            inventory: inventoryToSave(),
-            anvil: anvil,
-            savedAt: serverTimestamp() // Google's clock, not the player's
-        });
+        await setDoc(doc(db, 'users', currentUser.uid), saveData(points, chopsticks, inventory));
     } catch (error) {
         unsaved = true; // try again next time
         console.error('Save failed:', error);
@@ -1047,8 +1407,10 @@ onAuthStateChanged(auth, async function (user) {
         try {
             const snapshot = await getDoc(doc(db, 'users', user.uid));
             resetGame();
+            playerName = cleanName(user.displayName) || 'Player';
             if (snapshot.exists()) {
                 const data = snapshot.data();
+                playerName = cleanName(data.name) || playerName;
                 points = Number(data.points) || 0;
                 // Older saves kept this inside "owned"
                 chopsticks = Number(data.chopsticks) || Number(data.owned && data.owned.chopsticks) || 0;
@@ -1058,19 +1420,11 @@ onAuthStateChanged(auth, async function (user) {
                 unsaved = false;
             } else {
                 // New player: create their document right away, empty.
-                await setDoc(doc(db, 'users', user.uid), {
-                    name: user.displayName,
-                    points: 0,
-                    chopsticks: 0,
-                    factory: gridToList(),
-                    inventory: inventoryToSave(),
-                    anvil: false,
-                    savedAt: serverTimestamp()
-                });
+                await setDoc(doc(db, 'users', user.uid), saveData(0, 0, inventory));
                 unsaved = false;
             }
             currentUser = user;
-            document.getElementById('login-status').innerText = 'Signed in as ' + user.displayName;
+            showName();
             showScreen('menu-screen');
         } catch (error) {
             console.error('Load failed:', error);
@@ -1082,6 +1436,237 @@ onAuthStateChanged(auth, async function (user) {
         resetGame();
         unsaved = false;
         showScreen('login-screen');
+    }
+});
+
+// =====================================================================
+//  SETTINGS: username, game size, redeem codes
+// =====================================================================
+function cleanName(raw) {
+    return String(raw || '')
+        .replace(/[\u0000-\u001f\u007f]/g, '') // no control characters
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, MAX_NAME);
+}
+
+function showName() {
+    document.getElementById('login-status').innerText = 'Signed in as ' + playerName;
+}
+
+// A line of feedback under a setting: kind is 'good' or 'bad'
+function setMessage(id, text, kind) {
+    const box = document.getElementById(id);
+    box.innerText = text;
+    box.className = 'setting-msg' + (kind ? ' ' + kind : '');
+}
+
+// ---- Game size (saved on this device, because it depends on this screen)
+function loadScale() {
+    try {
+        const saved = Number(localStorage.getItem('sushiScale'));
+        if (saved >= MIN_SCALE && saved <= MAX_SCALE) {
+            return saved;
+        }
+    } catch (error) {}
+    return DEFAULT_SCALE;
+}
+
+function applyScale(percent, remember) {
+    document.documentElement.style.setProperty('--ui-scale', percent / 100);
+    document.getElementById('scale-value').innerText = percent + '%';
+    document.getElementById('scale-input').value = percent;
+    document.getElementById('scale-reset').innerText = 'Reset to ' + DEFAULT_SCALE + '%';
+    if (remember) {
+        try {
+            localStorage.setItem('sushiScale', String(percent));
+        } catch (error) {}
+    }
+}
+applyScale(loadScale(), false);
+
+document.getElementById('scale-input').addEventListener('input', function (event) {
+    applyScale(Number(event.target.value), true);
+});
+
+document.getElementById('scale-reset').addEventListener('click', function () {
+    applyScale(DEFAULT_SCALE, true);
+});
+
+// ---- Username (saved in your Firestore document)
+function fillSettings() {
+    document.getElementById('name-input').value = playerName;
+    setMessage('name-msg', '', '');
+    setMessage('code-msg', '', '');
+}
+
+function saveName() {
+    const name = cleanName(document.getElementById('name-input').value);
+    if (!name) {
+        setMessage('name-msg', 'Your name can not be empty.', 'bad');
+        return;
+    }
+    playerName = name;
+    document.getElementById('name-input').value = name;
+    showName();
+    unsaved = true;
+    saveSoon();
+    setMessage('name-msg', 'Saved!', 'good');
+}
+
+document.getElementById('name-save').addEventListener('click', saveName);
+document.getElementById('name-input').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+        saveName();
+    }
+});
+
+document.getElementById('settings-back').addEventListener('click', function () {
+    showScreen(settingsReturn);
+});
+
+// ---- Redeem codes
+// Codes live in Firestore: collection "Codes", document id = the code (UPPERCASE).
+// A code document can have:
+//   points: 500            chopsticks: 2
+//   items: { belt: 10, golden_soy_sauce: 1 }      message: "Welcome!"
+// Each account can use each code once: that is stored in users/{uid}/redeemed/{CODE},
+// and the Firestore rules refuse to create that document twice.
+function normalizeCode(raw) {
+    const code = String(raw || '').trim().toUpperCase();
+    return /^[A-Z0-9_-]{1,40}$/.test(code) ? code : '';
+}
+
+// Reads and checks the reward in a code document. Returns null if it makes no sense.
+function readReward(data) {
+    const reward = { points: 0, chopsticks: 0, items: [], message: '' };
+    const whole = function (value, max) {
+        const n = Math.floor(Number(value));
+        return Number.isFinite(n) ? Math.min(Math.max(n, 0), max) : 0;
+    };
+    reward.points = whole(data.points, 1e12);
+    reward.chopsticks = whole(data.chopsticks, 100000);
+    if (typeof data.message === 'string') {
+        reward.message = data.message.slice(0, 120);
+    }
+    if (data.items && typeof data.items === 'object') {
+        for (const id of Object.keys(data.items)) {
+            if (!ITEM_BY_ID[id]) {
+                console.warn('Code has an unknown item:', id);
+                return null; // do not burn the code on a typo
+            }
+            const n = whole(data.items[id], MAX_STACK);
+            if (n > 0) {
+                reward.items.push({ id: id, n: n });
+            }
+        }
+    }
+    if (reward.points === 0 && reward.chopsticks === 0 && reward.items.length === 0) {
+        return null;
+    }
+    return reward;
+}
+
+function rewardText(reward) {
+    const parts = [];
+    if (reward.points > 0) {
+        parts.push(format(reward.points) + ' points');
+    }
+    if (reward.chopsticks > 0) {
+        parts.push(reward.chopsticks + ' chopsticks');
+    }
+    for (const item of reward.items) {
+        parts.push(item.n + ' x ' + ITEM_BY_ID[item.id].name);
+    }
+    return parts.join(', ');
+}
+
+let redeeming = false;
+
+async function redeemCode() {
+    if (redeeming || !currentUser) {
+        return;
+    }
+    const input = document.getElementById('code-input');
+    const code = normalizeCode(input.value);
+    if (!code) {
+        setMessage('code-msg', 'Type a code first.', 'bad');
+        return;
+    }
+
+    redeeming = true;
+    document.getElementById('code-btn').disabled = true;
+    setMessage('code-msg', 'Checking...', '');
+    try {
+        const uid = currentUser.uid;
+        const usedRef = doc(db, 'users', uid, 'redeemed', code);
+        const results = await Promise.all([getDoc(doc(db, 'Codes', code)), getDoc(usedRef)]);
+        const codeSnap = results[0];
+        const usedSnap = results[1];
+
+        if (!codeSnap.exists()) {
+            setMessage('code-msg', "That code doesn't exist.", 'bad');
+            return;
+        }
+        if (usedSnap.exists()) {
+            setMessage('code-msg', 'You already used that code.', 'bad');
+            return;
+        }
+        const reward = readReward(codeSnap.data());
+        if (!reward) {
+            setMessage('code-msg', "That code doesn't work right now.", 'bad');
+            return;
+        }
+
+        // Work out the new state on copies first
+        const newSlots = cloneSlots(inventory);
+        for (const item of reward.items) {
+            if (!addToSlots(newSlots, item.id, item.n)) {
+                setMessage('code-msg', 'Your inventory is too full for this code. Make some room and try again.', 'bad');
+                return;
+            }
+        }
+        const newPoints = Math.min(points + reward.points, 999999999999999);
+        const newChopsticks = Math.min(chopsticks + reward.chopsticks, 100000);
+
+        // One batch: the "you used this" marker and your new save go in together or not at all
+        const batch = writeBatch(db);
+        batch.set(usedRef, { redeemedAt: serverTimestamp() });
+        batch.set(doc(db, 'users', uid), saveData(newPoints, newChopsticks, newSlots));
+        await batch.commit();
+
+        // It worked: give the reward in the game
+        points = Math.min(points + reward.points, 999999999999999);
+        chopsticks = Math.min(chopsticks + reward.chopsticks, 100000);
+        for (const item of reward.items) {
+            if (!addToSlots(inventory, item.id, item.n)) {
+                inventory = newSlots; // (only if the bag changed while we were waiting)
+                break;
+            }
+        }
+        unsaved = true;
+        displayDirty = true;
+        saveSoon();
+        input.value = '';
+        setMessage('code-msg', 'Code redeemed! You got ' + rewardText(reward) + '.' +
+            (reward.message ? ' ' + reward.message : ''), 'good');
+    } catch (error) {
+        console.error('Redeem failed:', error);
+        if (error.code === 'permission-denied') {
+            setMessage('code-msg', 'That code could not be redeemed. Did you already use it?', 'bad');
+        } else {
+            setMessage('code-msg', 'Something went wrong. Try again in a moment.', 'bad');
+        }
+    } finally {
+        redeeming = false;
+        document.getElementById('code-btn').disabled = false;
+    }
+}
+
+document.getElementById('code-btn').addEventListener('click', redeemCode);
+document.getElementById('code-input').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+        redeemCode();
     }
 });
 
