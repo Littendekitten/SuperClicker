@@ -21,6 +21,9 @@
 /* Solid color behind everything, so you never see white when scrolling or overscrolling */
 html {
     background-color: var(--nori);
+    /* The whole game is sized in rem, so this one line scales everything.
+       --ui-scale comes from the Settings menu (0.8 = 80% = 20% smaller). */
+    font-size: calc(16px * var(--ui-scale, 0.8));
 }
 
 body {
@@ -29,7 +32,7 @@ body {
     background: linear-gradient(to bottom, var(--nori-light), var(--nori));
     color: var(--rice);
     font-family: 'Fredoka', 'Noto Color Emoji', system-ui, sans-serif;
-    font-size: 18px;
+    font-size: 1.125rem;
     line-height: 1.4;
 }
 
@@ -39,9 +42,9 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 1.125rem;
     min-height: 100vh;
-    padding: 32px 20px;
+    padding: 2rem 1.25rem;
     text-align: center;
 }
 
@@ -66,7 +69,7 @@ h2 {
 }
 
 h3 {
-    margin: 0 0 4px;
+    margin: 0 0 0.25rem;
     font-size: 1.4rem;
     font-weight: 600;
 }
@@ -98,9 +101,9 @@ p {
 }
 
 .logo {
-    width: 150px;
+    width: 9.375rem;
     height: auto;
-    border-radius: 28px; /* softens the logo's white square */
+    border-radius: 1.75rem; /* softens the logo's white square */
 }
 
 /* ---------- Buttons ---------- */
@@ -108,9 +111,9 @@ button {
     font-family: inherit;
     font-size: 1.15rem;
     font-weight: 600;
-    padding: 14px 28px;
+    padding: 0.875rem 1.75rem;
     border: 2px solid transparent;
-    border-radius: 999px;
+    border-radius: 62.4375rem;
     background: var(--salmon);
     color: var(--soy);
     cursor: pointer;
@@ -119,7 +122,7 @@ button {
 
 .screen > button,
 .counter > button {
-    width: min(100%, 320px);
+    width: min(100%, 20rem);
 }
 
 button:active {
@@ -156,14 +159,14 @@ button:focus-visible {
 
 /* ---------- Game layout: nigiri on the left, store on the right ---------- */
 #game-screen {
-    padding: 24px 20px;
+    padding: 1.5rem 1.25rem;
 }
 
 .game-layout {
-    width: min(100%, 1100px);
+    width: min(100%, 68.75rem);
     display: grid;
     grid-template-columns: 1fr;   /* phones: stacked */
-    gap: 28px;
+    gap: 1.75rem;
     align-items: center;
 }
 
@@ -172,13 +175,13 @@ button:focus-visible {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 1.125rem;
 }
 
 /* Wide screens: two columns */
 @media (min-width: 900px) {
     .game-layout {
-        grid-template-columns: 320px 1fr;
+        grid-template-columns: 20rem 1fr;
     }
 }
 
@@ -186,29 +189,45 @@ button:focus-visible {
 .factory {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 18px;
-    border-radius: 24px;
+    gap: 0.75rem;
+    padding: 1.125rem;
+    border-radius: 1.5rem;
     background: rgba(246, 243, 234, 0.06);
     text-align: left;
 }
 
-/* The row of pieces you can pick */
+/* The hotbar (first 9 inventory slots) and the Remove / Rotate buttons */
 #toolbar {
     display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+
+#hotbar {
+    max-width: 32rem;
+}
+
+#tool-buttons {
+    display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 0.5rem;
+}
+
+.held-info {
+    min-height: 1.4em;
+    font-size: 0.9rem;
+    color: var(--rice);
 }
 
 .tool {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1px;
-    min-width: 74px;
-    padding: 8px 8px;
+    gap: 0.0625rem;
+    min-width: 4.625rem;
+    padding: 0.5rem 0.5rem;
     border: 2px solid rgba(246, 243, 234, 0.2);
-    border-radius: 12px;
+    border-radius: 0.75rem;
     background: var(--nori-light);
     color: var(--rice);
     font-size: 0.8rem;
@@ -247,7 +266,7 @@ button:focus-visible {
     display: block;
     width: 100%;
     height: auto;
-    border-radius: 14px;
+    border-radius: 0.875rem;
     cursor: pointer;
     touch-action: manipulation;
 }
@@ -267,8 +286,8 @@ button:focus-visible {
 .chopsticks-btn {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 10px 16px;
+    gap: 0.125rem;
+    padding: 0.625rem 1rem;
     border: 2px dashed var(--salmon);
     background: transparent;
     color: var(--rice);
@@ -308,11 +327,11 @@ button:focus-visible {
 
 /* ---------- The nigiri: the big click button ---------- */
 #click-btn {
-    width: min(86vw, 300px);
-    height: 170px;
-    margin: 8px 0;
+    width: min(86vw, 18.75rem);
+    height: 10.625rem;
+    margin: 0.5rem 0;
     border: none;
-    border-radius: 999px 999px 90px 90px / 110px 110px 60px 60px;
+    border-radius: 62.4375rem 62.4375rem 5.625rem 5.625rem / 6.875rem 6.875rem 3.75rem 3.75rem;
     font-size: 1.6rem;
     font-weight: 700;
     color: var(--soy);
@@ -321,21 +340,21 @@ button:focus-visible {
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    padding: 0 0 22px;
+    padding: 0 0 1.375rem;
 
     /* Layer 1: salmon on top. Layer 2: rice underneath. */
     background:
         /* fat stripes on the salmon */
         repeating-linear-gradient(
             100deg,
-            rgba(255, 255, 255, 0.28) 0 6px,
-            transparent 6px 26px
+            rgba(255, 255, 255, 0.28) 0 0.375rem,
+            transparent 0.375rem 1.625rem
         ) top / 100% 60% no-repeat,
         linear-gradient(to bottom, #ff9566, #ff6a3d) top / 100% 60% no-repeat,
         /* the rice */
         radial-gradient(ellipse at 50% 90%, #ffffff, #e9e4d4);
 
-    box-shadow: 0 10px 0 #b8b2a0, 0 22px 28px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0.625rem 0 #b8b2a0, 0 1.375rem 1.75rem rgba(0, 0, 0, 0.4);
     transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -344,8 +363,8 @@ button:focus-visible {
         background:
             repeating-linear-gradient(
                 100deg,
-                rgba(255, 255, 255, 0.28) 0 6px,
-                transparent 6px 26px
+                rgba(255, 255, 255, 0.28) 0 0.375rem,
+                transparent 0.375rem 1.625rem
             ) top / 100% 60% no-repeat,
             linear-gradient(to bottom, #ff9566, #ff6a3d) top / 100% 60% no-repeat,
             radial-gradient(ellipse at 50% 90%, #ffffff, #e9e4d4);
@@ -354,8 +373,8 @@ button:focus-visible {
 
 /* Pressing it pushes it down into the "plate" */
 #click-btn:active {
-    transform: translateY(8px) scale(0.99);
-    box-shadow: 0 2px 0 #b8b2a0, 0 8px 14px rgba(0, 0, 0, 0.4);
+    transform: translateY(0.5rem) scale(0.99);
+    box-shadow: 0 0.125rem 0 #b8b2a0, 0 0.5rem 0.875rem rgba(0, 0, 0, 0.4);
 }
 
 /* ---------- The "+1" that floats up when you click ---------- */
@@ -366,13 +385,13 @@ button:focus-visible {
     font-size: 1.6rem;
     font-weight: 700;
     color: var(--wasabi);
-    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 0.125rem 0.375rem rgba(0, 0, 0, 0.5);
     animation: float-up 0.8s ease-out forwards;
 }
 
 @keyframes float-up {
     from { opacity: 1; margin-top: 0; }
-    to   { opacity: 0; margin-top: -70px; }
+    to   { opacity: 0; margin-top: -4.375rem; }
 }
 
 /* ---------- Respect people who turn animations off ---------- */
@@ -388,12 +407,12 @@ button:focus-visible {
 
 /* ---------- Shop and inventory ---------- */
 .panel {
-    width: min(100%, 560px);
+    width: min(100%, 35rem);
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 22px;
-    border-radius: 24px;
+    gap: 0.875rem;
+    padding: 1.375rem;
+    border-radius: 1.5rem;
     background: rgba(246, 243, 234, 0.06);
 }
 
@@ -406,12 +425,12 @@ button:focus-visible {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 0.5rem;
     color: var(--rice-muted);
 }
 
 .amount-btn {
-    padding: 6px 16px;
+    padding: 0.375rem 1rem;
     font-size: 1rem;
     background: transparent;
     color: var(--rice);
@@ -427,15 +446,15 @@ button:focus-visible {
 .item-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 0.625rem;
 }
 
 .item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 16px;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 1rem;
     background: var(--nori-light);
     text-align: left;
 }
@@ -462,7 +481,7 @@ button:focus-visible {
 }
 
 .item-buy {
-    padding: 8px 16px;
+    padding: 0.5rem 1rem;
     font-size: 0.95rem;
     white-space: nowrap;
 }
@@ -476,20 +495,177 @@ button:focus-visible {
     transform: none;
 }
 
-.item-counts {
+/* ---------- Slots: the hotbar and the inventory ---------- */
+.slot-grid,
+#hotbar {
+    display: grid;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 0.35rem;
+}
+
+.slot {
+    position: relative;
     display: flex;
-    gap: 14px;
-    text-align: center;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 2px solid rgba(246, 243, 234, 0.2);
+    border-radius: 0.75rem;
+    background: var(--nori-light);
+    color: var(--rice);
+    font-family: inherit;
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.slot-emoji {
+    font-size: 1.7rem;
+    pointer-events: none;
+}
+
+.slot-count {
+    position: absolute;
+    right: 0.25rem;
+    bottom: 0.1rem;
     font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--rice);
+    text-shadow: 0 1px 3px #000, 0 0 2px #000;
+    pointer-events: none;
+}
+
+.slot-key {
+    position: absolute;
+    left: 0.3rem;
+    top: 0.15rem;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--rice-muted);
+    pointer-events: none;
+}
+
+/* Golden soy sauce, and anything it was used on */
+.slot.golden {
+    border-color: #ffd34d;
+    background: linear-gradient(135deg, #5b4513, #2c2410);
+    box-shadow: 0 0 0.6rem rgba(255, 211, 77, 0.45);
+}
+
+@media (hover: hover) {
+    .slot:hover {
+        background: #234438;
+    }
+    .slot.golden:hover {
+        background: linear-gradient(135deg, #6d5218, #382d12);
+    }
+}
+
+.slot.selected {
+    border-color: var(--salmon);
+    background: #234438;
+}
+
+.slot.golden.selected {
+    border-color: var(--salmon);
+    background: linear-gradient(135deg, #6d5218, #382d12);
+}
+
+.slot.dragging {
+    opacity: 0.4;
+}
+
+.slot-grid.hotbar-row .slot {
+    border-color: rgba(255, 122, 77, 0.45);
+}
+
+.slot-grid.hotbar-row .slot.selected {
+    border-color: var(--salmon);
+}
+
+.slot-label {
+    margin: 0.2rem 0 -0.4rem;
+    font-size: 0.8rem;
+    text-align: left;
     color: var(--rice-muted);
 }
 
-.item-counts b {
-    display: block;
-    font-size: 1.2rem;
-    color: var(--rice);
+.panel.wide {
+    width: min(100%, 38rem);
 }
 
-.item-counts .total b {
+.slot-info {
+    min-height: 3.2em;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* ---------- Settings ---------- */
+.setting {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.setting + .setting {
+    padding-top: 1rem;
+    border-top: 1px solid rgba(246, 243, 234, 0.12);
+}
+
+.setting label {
+    font-weight: 600;
+}
+
+.setting-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.text-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.6rem 0.9rem;
+    border: 2px solid rgba(246, 243, 234, 0.25);
+    border-radius: 0.75rem;
+    background: var(--nori-light);
+    color: var(--rice);
+    font-family: inherit;
+    font-size: 1rem;
+}
+
+.text-input:focus-visible {
+    outline: 3px solid var(--wasabi);
+    outline-offset: 2px;
+}
+
+#code-input {
+    text-transform: uppercase;
+}
+
+input[type="range"] {
+    width: 100%;
+    accent-color: var(--salmon);
+}
+
+.small {
+    padding: 0.5rem 1.1rem;
+    font-size: 1rem;
+}
+
+.setting-msg {
+    min-height: 1.4em;
+    font-size: 0.9rem;
+}
+
+.setting-msg.good {
     color: var(--wasabi);
+}
+
+.setting-msg.bad {
+    color: #ff9c9c;
 }
