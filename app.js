@@ -34,6 +34,7 @@ const RES = 2;             // draw at 2x so it stays sharp on big or retina scre
 const SPEED = 1.5;         // squares per second
 const SPAWN_EVERY = 2;     // seconds between sushi from one rice cooker
 const MAX_SUSHI = 80;      // safety limit so the page never gets slow
+const COMPLETE_BOOST = 2;  // a rice ball that meets a fish becomes complete sushi: its value is multiplied by this
 const MAX_AGE = 60;        // sushi older than this many seconds disappears (stops endless loops)
 
 // The anvil: a one-time unlock in the shop (merging tiles comes later)
@@ -56,10 +57,10 @@ const MAX_SCALE = 150;
 //   bonus:    how much value a topping adds to sushi that passes through
 const TILES = [
     { id: 'belt',   name: 'Belt',            emoji: '➡️',  baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
-    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  baseCost: 20,  growth: 1.15, hint: 'Makes a sushi every 2 seconds' },
-    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  baseCost: 40,  growth: 1.15, hint: 'Sushi passing by is worth +2', bonus: 2 },
+    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  baseCost: 20,  growth: 1.15, hint: 'Makes a rice ball every 2 seconds' },
+    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  baseCost: 40,  growth: 1.15, hint: 'Turns a rice ball into sushi: +2, and complete sushi is worth 2x', bonus: 2 },
     { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', baseCost: 120, growth: 1.15, hint: 'Sushi passing by is worth +5', bonus: 5 },
-    { id: 'exit',   name: 'Serving counter', emoji: '🏮',  baseCost: 10,  growth: 1,    hint: 'Sells sushi for its value' },
+    { id: 'exit',   name: 'Serving counter', emoji: '🏮',  baseCost: 10,  growth: 1,    hint: 'Sells what arrives for its value' },
 ];
 
 // Equipable items: you put them ON a piece you already placed (they are not bought with points).
@@ -865,6 +866,7 @@ function trySpawn(sx, sy, dir, value) {
         dx: DX[dir], dy: DY[dir],
         p: 0, value: value, age: 0,
         seen: [],                          // machines it already passed (each gives its bonus once)
+        complete: false,                   // false = a plain rice ball, true = sushi (it passed a fish)
         waiting: false,                    // true when it has reached the end of a belt
         jx: (Math.random() - 0.5) * 0.3,   // small random offset so waiting sushi form a little pile
         jy: (Math.random() - 0.5) * 0.3,
@@ -927,6 +929,11 @@ function arrive(s) {
         if (!s.seen.includes(index)) {
             s.seen.push(index);
             s.value = s.value + TILE_BY_ID[cell.kind].bonus * modMultiplier(cell);
+            // The first fish turns the rice ball into complete sushi, which is worth more
+            if (cell.kind === 'fish' && !s.complete) {
+                s.complete = true;
+                s.value = s.value * COMPLETE_BOOST;
+            }
         }
     }
     tryDepart(s);
@@ -1127,17 +1134,29 @@ function drawPiece(kind, dir, gx, gy, time, mod) {
 }
 
 // A little piece of nigiri
-function drawSushi(cx, cy, value) {
+// A plain rice ball (before a fish) or complete sushi (after a fish)
+function drawSushi(cx, cy, value, complete) {
     const w = CELL * 0.5;
     const h = CELL * 0.3;
 
-    ctx.fillStyle = '#f6f3ea';
-    roundedRect(cx - w / 2, cy - h / 2 + 3, w, h * 0.7, 5);
-    ctx.fill();
+    if (!complete) {
+        ctx.fillStyle = '#f6f3ea';
+        ctx.beginPath();
+        ctx.arc(cx, cy + 2, CELL * 0.17, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.beginPath();
+        ctx.arc(cx + 2, cy + 5, CELL * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+    } else {
+        ctx.fillStyle = '#f6f3ea';
+        roundedRect(cx - w / 2, cy - h / 2 + 3, w, h * 0.7, 5);
+        ctx.fill();
 
-    ctx.fillStyle = '#ff7a4d';
-    roundedRect(cx - w / 2 - 1, cy - h / 2 - 3, w + 2, h * 0.55, 5);
-    ctx.fill();
+        ctx.fillStyle = '#ff7a4d';
+        roundedRect(cx - w / 2 - 1, cy - h / 2 - 3, w + 2, h * 0.55, 5);
+        ctx.fill();
+    }
 
     if (value > 1) {
         ctx.font = '700 12px Fredoka, system-ui, sans-serif';
@@ -1196,7 +1215,7 @@ function draw() {
             gx = s.x + (s.tx - s.x) * s.p;
             gy = s.y + (s.ty - s.y) * s.p;
         }
-        drawSushi((gx + 0.5) * CELL, (gy + 0.5) * CELL, s.value);
+        drawSushi((gx + 0.5) * CELL, (gy + 0.5) * CELL, s.value, s.complete);
     }
 
     // "+5" popups
