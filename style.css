@@ -1,5 +1,5 @@
 /* ---------- Font ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Noto+Color+Emoji&display=swap');
 
 /* ---------- Colors (change them here and the whole game changes) ---------- */
 :root {
@@ -28,7 +28,7 @@ body {
     min-height: 100vh;
     background: linear-gradient(to bottom, var(--nori-light), var(--nori));
     color: var(--rice);
-    font-family: 'Fredoka', system-ui, sans-serif;
+    font-family: 'Fredoka', 'Noto Color Emoji', system-ui, sans-serif;
     font-size: 18px;
     line-height: 1.4;
 }
