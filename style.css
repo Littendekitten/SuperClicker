@@ -669,3 +669,27 @@ input[type="range"] {
 .setting-msg.bad {
     color: #ff9c9c;
 }
+
+/* ---------- Leaderboard ---------- */
+.board-row {
+    gap: 0.75rem;
+}
+
+.board-rank {
+    min-width: 2.2rem;
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--rice-muted);
+}
+
+.board-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-row.me {
+    outline: 2px solid var(--wasabi);
+}
