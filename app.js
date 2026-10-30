@@ -330,7 +330,7 @@ function showScreen(screenId) {
         fillSettings();
     }
     if (screenId === 'leaderboard-screen') {
-        loadLeaderboard();
+        loadLeaderboard(false);
     }
     updateDisplay();
 }
@@ -1731,19 +1731,22 @@ document.getElementById('code-input').addEventListener('keydown', function (even
 // =====================================================================
 let boardLoading = false;
 
-async function loadLeaderboard() {
+// quiet = an automatic refresh: no "Loading..." text and no extra save
+async function loadLeaderboard(quiet) {
     if (boardLoading) {
         return;
     }
     boardLoading = true;
     const list = document.getElementById('board-list');
     const status = document.getElementById('board-status');
-    status.innerText = 'Loading...';
     try {
-        // Make sure your own latest points are on the board first
-        boardForce = true;
-        unsaved = true;
-        await save();
+        if (quiet !== true) {
+            status.innerText = 'Loading...';
+            // Make sure your own latest points are on the board first
+            boardForce = true;
+            unsaved = true;
+            await save();
+        }
 
         const snap = await getDocs(query(collection(db, 'leaderboard'), orderBy('points', 'desc'), limit(10)));
         list.innerHTML = '';
@@ -1774,7 +1777,16 @@ async function loadLeaderboard() {
     }
 }
 
-document.getElementById('board-refresh').addEventListener('click', loadLeaderboard);
+document.getElementById('board-refresh').addEventListener('click', function () {
+    loadLeaderboard(false);
+});
+
+// While the leaderboard is open it updates itself every 10 seconds
+setInterval(function () {
+    if (currentScreen === 'leaderboard-screen' && document.visibilityState === 'visible') {
+        loadLeaderboard(true);
+    }
+}, 10000);
 
 // =====================================================================
 //  BUTTONS
