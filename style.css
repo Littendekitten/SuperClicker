@@ -158,10 +158,11 @@ button:focus-visible {
 }
 
 .game-layout {
-    width: min(100%, 980px);
+    width: min(100%, 1100px);
     display: grid;
     grid-template-columns: 1fr;   /* phones: stacked */
     gap: 28px;
+    align-items: center;
 }
 
 .counter {
@@ -173,15 +174,9 @@ button:focus-visible {
 }
 
 /* Wide screens: two columns */
-@media (min-width: 820px) {
+@media (min-width: 900px) {
     .game-layout {
-        grid-template-columns: 1fr 380px;
-        align-items: stretch;
-    }
-
-    .factory {
-        max-height: calc(100vh - 48px);
-        overflow-y: auto;
+        grid-template-columns: 320px 1fr;
     }
 }
 
@@ -189,122 +184,123 @@ button:focus-visible {
 .factory {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     padding: 18px;
     border-radius: 24px;
     background: rgba(246, 243, 234, 0.06);
     text-align: left;
 }
 
-#factory-lanes {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-/* One lane per machine: a title line, then a conveyor belt with tiles on it */
-.lane-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 6px;
-}
-
-.lane-title {
-    font-weight: 600;
-}
-
-.lane-count {
-    color: var(--wasabi);
-    font-weight: 700;
-}
-
-.lane-effect {
-    font-size: 0.85rem;
-    color: var(--rice-muted);
-    text-align: right;
-}
-
-.lane-belt {
+/* The row of pieces you can pick */
+#toolbar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    min-height: 56px;
-    padding: 8px;
-    border-radius: 14px;
-    /* faint stripes, like a conveyor belt */
-    background: repeating-linear-gradient(90deg, #0b1713 0 14px, #0e1c17 14px 28px);
+    gap: 8px;
 }
 
-/* A machine you own */
-.tile {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: rgba(246, 243, 234, 0.14);
-    font-size: 1.4rem;
-    line-height: 1;
-}
-
-/* "+3" when you own more than fit on the lane */
-.tile.more {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--wasabi);
-}
-
-.tile.pop {
-    animation: pop-in 0.25s ease-out;
-}
-
-@keyframes pop-in {
-    from { transform: scale(0.3); opacity: 0; }
-    to   { transform: scale(1);   opacity: 1; }
-}
-
-/* The empty dashed tile at the end of each lane: click it to build the next one */
-.build-tile {
+.tool {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-    height: 40px;
-    padding: 0 12px;
-    border: 2px dashed var(--salmon);
-    border-radius: 10px;
-    background: transparent;
+    gap: 1px;
+    min-width: 74px;
+    padding: 8px 8px;
+    border: 2px solid rgba(246, 243, 234, 0.2);
+    border-radius: 12px;
+    background: var(--nori-light);
     color: var(--rice);
-    font-size: 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.2;
 }
 
-.build-tile .plus {
-    font-size: 1.3rem;
-    line-height: 1;
+.tool-emoji {
+    font-size: 1.5rem;
+    line-height: 1.2;
+}
+
+.tool-cost {
+    color: var(--wasabi);
+    font-weight: 600;
+}
+
+/* Can't afford it right now (you can still select it) */
+.tool.poor .tool-cost {
+    color: #ff9c9c;
+}
+
+.tool.selected {
+    border-color: var(--salmon);
+    background: #234438;
+}
+
+@media (hover: hover) {
+    .tool:hover {
+        background: #234438;
+    }
+}
+
+/* The factory floor. app.js sets the real size; CSS scales it to fit the panel. */
+#factory-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.factory-help {
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.factory-message {
+    min-height: 1.4em;
+    font-size: 0.9rem;
     color: var(--salmon);
 }
 
-/* :not(:disabled) makes this rule strong enough to beat the general button:hover */
+/* ---------- Chopsticks button (under the nigiri) ---------- */
+.chopsticks-btn {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 16px;
+    border: 2px dashed var(--salmon);
+    background: transparent;
+    color: var(--rice);
+    font-size: 1rem;
+    line-height: 1.3;
+}
+
+.chopsticks-title {
+    font-weight: 600;
+}
+
+.chopsticks-title #chopsticks-count {
+    color: var(--wasabi);
+}
+
+.chopsticks-detail {
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--rice-muted);
+}
+
 @media (hover: hover) {
-    .build-tile:not(:disabled):hover {
+    .chopsticks-btn:not(:disabled):hover {
         background: rgba(255, 122, 77, 0.18);
     }
 }
 
-/* Can't afford it yet */
-.build-tile:disabled {
-    opacity: 0.4;
+.chopsticks-btn:disabled {
+    opacity: 0.45;
     border-color: rgba(246, 243, 234, 0.35);
     cursor: not-allowed;
 }
 
-.build-tile:disabled .plus {
-    color: var(--rice-muted);
-}
-
-.build-tile:disabled:active {
+.chopsticks-btn:disabled:active {
     transform: none;
 }
 
@@ -385,9 +381,5 @@ button:focus-visible {
 
     .float {
         display: none;
-    }
-
-    .tile.pop {
-        animation: none;
     }
 }
