@@ -36,6 +36,8 @@
         <h1>Welcome To SushiClicker!</h1>
         <p id="login-status"></p>
         <button data-goto="game-screen">Start Game</button>
+        <button class="quiet" data-goto="leaderboard-screen">🏆 Leaderboard</button>
+        <button class="quiet" data-goto="leaderboard-screen">🏆 Leaderboard</button>
         <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
         <button id="logout-btn">Sign out</button>
     </section>
@@ -56,6 +58,7 @@
                 <button class="quiet" data-goto="shop-screen">🛒 Shop</button>
                 <button class="quiet" data-goto="inventory-screen">🎒 Inventory</button>
                 <button id="anvil-btn" class="quiet hidden" data-goto="anvil-screen">⚒️ Anvil</button>
+                <button class="quiet" data-goto="leaderboard-screen">🏆 Leaderboard</button>
                 <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
                 <button data-goto="menu-screen">Menu</button>
             </div>
@@ -110,6 +113,19 @@
             <p id="inv-info" class="slot-info"></p>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
+    </section>
+
+    <!-- Leaderboard: the 10 players with the most points -->
+    <section id="leaderboard-screen" class="screen hidden">
+        <div class="panel">
+            <h1>🏆 Leaderboard</h1>
+            <p>The 10 players with the most points</p>
+            <div id="board-list" class="item-list"></div>
+            <p id="board-status"></p>
+            <button id="board-refresh" class="small quiet">Refresh</button>
+        </div>
+        <button class="quiet" data-goto="game-screen">Back to factory</button>
+        <button class="quiet" data-goto="menu-screen">Menu</button>
     </section>
 
     <!-- Settings: username, game size, redeem codes -->
