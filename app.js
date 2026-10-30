@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
@@ -17,7 +17,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // ---------- The upgrades ----------
-// To add a new upgrade, add one line here. The store, the saving and the
+// To add a new machine, add one line here. The factory, the saving and the
 // points-per-second all pick it up automatically.
 //   id:         short name used for saving (never change it later!)
 //   baseCost:   price of the first one
@@ -92,41 +92,89 @@ function showScreen(screenId) {
     updateDisplay();
 }
 
-// ---------- The store ----------
-// Builds one button per upgrade. This runs once, at page load.
-const storeButtons = {}; // item id -> its button, so we can update it later
+// ---------- The factory ----------
+// Every item is a "lane" on the factory floor. Each one you own shows up as a tile
+// on its lane, and the "+" tile at the end builds the next one.
+const MAX_TILES = 5;      // show at most this many tiles per lane, then a "+N" tile
+const lanes = {};         // item id -> the parts of its lane, so we can update them later
+const shownCount = {};    // item id -> how many tiles are drawn right now
 
-function buildStore() {
-    const list = document.getElementById('store-list');
+function buildFactory() {
+    const floor = document.getElementById('factory-lanes');
     for (const item of ITEMS) {
-        // Describe what it does, e.g. "+1 per click" or "+0.1/s"
+        // Describe what it does, e.g. "+1 per click" or "+0.1/s each"
         let effect = '';
         if (item.perClick) {
-            effect = '+' + formatRate(item.perClick) + ' per click';
+            effect = '+' + formatRate(item.perClick) + ' per click each';
         }
         if (item.perSecond) {
-            effect = '+' + formatRate(item.perSecond) + '/s';
+            effect = '+' + formatRate(item.perSecond) + '/s each';
         }
 
-        const button = document.createElement('button');
-        button.className = 'store-item';
-        button.innerHTML =
-            '<span class="item-emoji">' + item.emoji + '</span>' +
-            '<span class="item-info">' +
-                '<span class="item-name">' + item.name + '</span>' +
-                '<span class="item-detail">' +
-                    '<span class="item-cost"></span> points, ' + effect +
-                '</span>' +
-            '</span>' +
-            '<span class="item-owned">0</span>';
-        button.addEventListener('click', function () {
+        const lane = document.createElement('div');
+        lane.className = 'lane';
+        lane.innerHTML =
+            '<div class="lane-head">' +
+                '<span class="lane-title">' + item.emoji + ' ' + item.name +
+                    ' <span class="lane-count">x0</span></span>' +
+                '<span class="lane-effect">' + effect + '</span>' +
+            '</div>' +
+            '<div class="lane-belt">' +
+                '<button class="build-tile" aria-label="Build ' + item.name + '">' +
+                    '<span class="plus">+</span><span class="build-cost"></span>' +
+                '</button>' +
+            '</div>';
+
+        const belt = lane.querySelector('.lane-belt');
+        const buildButton = lane.querySelector('.build-tile');
+        buildButton.addEventListener('click', function () {
             buyItem(item);
         });
-        list.appendChild(button);
-        storeButtons[item.id] = button;
+
+        floor.appendChild(lane);
+        lanes[item.id] = {
+            belt: belt,
+            buildButton: buildButton,
+            count: lane.querySelector('.lane-count'),
+            cost: lane.querySelector('.build-cost'),
+        };
+        shownCount[item.id] = 0;
     }
 }
-buildStore();
+buildFactory();
+
+// Draws the tiles for one lane. We only call this when the amount you own changed,
+// so the little "pop" animation doesn't restart ten times a second.
+function drawTiles(item) {
+    const lane = lanes[item.id];
+    const amount = owned[item.id];
+
+    // Remove the old tiles (everything except the build button)
+    for (const tile of lane.belt.querySelectorAll('.tile')) {
+        tile.remove();
+    }
+
+    const visible = Math.min(amount, MAX_TILES);
+    for (let i = 0; i < visible; i++) {
+        const tile = document.createElement('span');
+        tile.className = 'tile';
+        tile.innerText = item.emoji;
+        // Only the newest tile pops in, and only if you just bought it
+        if (i === visible - 1 && amount > shownCount[item.id] && shownCount[item.id] > 0) {
+            tile.classList.add('pop');
+        }
+        lane.belt.insertBefore(tile, lane.buildButton);
+    }
+
+    if (amount > MAX_TILES) {
+        const more = document.createElement('span');
+        more.className = 'tile more';
+        more.innerText = '+' + (amount - MAX_TILES);
+        lane.belt.insertBefore(more, lane.buildButton);
+    }
+
+    shownCount[item.id] = amount;
+}
 
 // ---------- Showing numbers on the page ----------
 function updateDisplay() {
@@ -135,11 +183,16 @@ function updateDisplay() {
         formatRate(totalPerSecond()) + ' per second, ' + formatRate(clickPower()) + ' per click';
 
     for (const item of ITEMS) {
-        const button = storeButtons[item.id];
+        const lane = lanes[item.id];
         const cost = itemCost(item);
-        button.querySelector('.item-cost').innerText = format(cost);
-        button.querySelector('.item-owned').innerText = owned[item.id];
-        button.disabled = points < cost; // can't afford it -> greyed out
+        lane.cost.innerText = format(cost);
+        lane.count.innerText = 'x' + owned[item.id];
+        lane.buildButton.disabled = points < cost; // can't afford it -> greyed out
+        lane.buildButton.setAttribute('aria-label', 'Build ' + item.name + ' for ' + format(cost) + ' points');
+
+        if (owned[item.id] !== shownCount[item.id]) {
+            drawTiles(item);
+        }
     }
 }
 
@@ -229,7 +282,8 @@ async function save() {
         await setDoc(doc(db, 'users', currentUser.uid), {
             name: currentUser.displayName,
             points: Math.round(points * 100) / 100, // keep 2 decimals so slow income isn't lost
-            owned: owned
+            owned: owned,
+            savedAt: serverTimestamp() // Google's clock, not the player's. The rules use it to check the earnings are possible.
         });
     } catch (error) {
         unsaved = true; // try again next time
@@ -277,7 +331,15 @@ onAuthStateChanged(auth, async function (user) {
                 }
                 unsaved = false;
             } else {
-                unsaved = true; // new player: create their document
+                // New player: create their document right away, empty.
+                // The rules only allow a brand-new document to start at zero.
+                await setDoc(doc(db, 'users', user.uid), {
+                    name: user.displayName,
+                    points: 0,
+                    owned: owned,
+                    savedAt: serverTimestamp()
+                });
+                unsaved = false;
             }
             currentUser = user;
             document.getElementById('login-status').innerText = 'Signed in as ' + user.displayName;
