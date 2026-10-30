@@ -46,7 +46,7 @@ const HOTBAR = 9;
 const MAX_STACK = 999;     // most items in one slot
 
 // Player name and screen size (the game is drawn 20% smaller by default)
-const MAX_NAME = 24;
+const MAX_NAME = 14;
 const DEFAULT_SCALE = 80;  // percent
 const MIN_SCALE = 50;
 const MAX_SCALE = 150;
