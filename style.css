@@ -139,6 +139,7 @@ button:focus-visible {
 
 /* Quiet buttons: going back / signing out */
 #logout-btn,
+.quiet,
 [data-goto="menu-screen"] {
     background: transparent;
     color: var(--rice);
@@ -147,6 +148,7 @@ button:focus-visible {
 
 @media (hover: hover) {
     #logout-btn:hover,
+    .quiet:hover,
     [data-goto="menu-screen"]:hover {
         background: rgba(246, 243, 234, 0.1);
     }
@@ -382,4 +384,112 @@ button:focus-visible {
     .float {
         display: none;
     }
+}
+
+/* ---------- Shop and inventory ---------- */
+.panel {
+    width: min(100%, 560px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 22px;
+    border-radius: 24px;
+    background: rgba(246, 243, 234, 0.06);
+}
+
+.points-text {
+    color: var(--wasabi);
+    font-weight: 700;
+}
+
+.buy-amount {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--rice-muted);
+}
+
+.amount-btn {
+    padding: 6px 16px;
+    font-size: 1rem;
+    background: transparent;
+    color: var(--rice);
+    border-color: rgba(246, 243, 234, 0.35);
+}
+
+.amount-btn.selected {
+    background: var(--salmon);
+    color: var(--soy);
+    border-color: var(--salmon);
+}
+
+.item-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: var(--nori-light);
+    text-align: left;
+}
+
+.item-emoji {
+    font-size: 1.8rem;
+    line-height: 1;
+}
+
+.item-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.item-name {
+    font-weight: 600;
+}
+
+.item-sub {
+    font-size: 0.85rem;
+    color: var(--rice-muted);
+}
+
+.item-buy {
+    padding: 8px 16px;
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+.item-buy:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.item-buy:disabled:active {
+    transform: none;
+}
+
+.item-counts {
+    display: flex;
+    gap: 14px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--rice-muted);
+}
+
+.item-counts b {
+    display: block;
+    font-size: 1.2rem;
+    color: var(--rice);
+}
+
+.item-counts .total b {
+    color: var(--wasabi);
 }
