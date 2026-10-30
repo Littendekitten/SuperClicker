@@ -6,6 +6,15 @@
     <link rel="icon" type="image/png" href="SC.png">
     <title>SushiClicker</title>
 
+    <!-- Apply the saved screen size before the page draws, so it does not flash -->
+    <script>
+        try {
+            var s = Number(localStorage.getItem('sushiScale'));
+            if (s >= 50 && s <= 150) {
+                document.documentElement.style.setProperty('--ui-scale', s / 100);
+            }
+        } catch (e) {}
+    </script>
     <link rel="stylesheet" href="style.css">
     <script type="module" src="app.js"></script>
 </head>
@@ -27,6 +36,7 @@
         <h1>Welcome To SushiClicker!</h1>
         <p id="login-status"></p>
         <button data-goto="game-screen">Start Game</button>
+        <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
         <button id="logout-btn">Sign out</button>
     </section>
 
@@ -46,17 +56,23 @@
                 <button class="quiet" data-goto="shop-screen">🛒 Shop</button>
                 <button class="quiet" data-goto="inventory-screen">🎒 Inventory</button>
                 <button id="anvil-btn" class="quiet hidden" data-goto="anvil-screen">⚒️ Anvil</button>
+                <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
                 <button data-goto="menu-screen">Menu</button>
             </div>
 
             <div class="factory">
                 <h3>Sushi Factory</h3>
-                <!-- app.js fills the toolbar from the TOOLS list -->
-                <div id="toolbar"></div>
+                <!-- app.js fills the hotbar (the first 9 inventory slots) and the tool buttons -->
+                <div id="toolbar">
+                    <div id="hotbar"></div>
+                    <div id="tool-buttons"></div>
+                </div>
+                <p id="held-info" class="held-info"></p>
                 <!-- app.js draws the factory floor and the moving sushi here -->
                 <canvas id="factory-canvas"></canvas>
                 <p class="factory-help">
-                    Buy pieces in the Shop, then pick one, click a square, and press R to turn it.
+                    Buy pieces in the Shop. Pick one in the hotbar (or press 1-9), click a square,
+                    and press R to turn it. Rearrange your hotbar in the Inventory.
                     Rice cookers make sushi.
                     Run belts past fish and chefs to make sushi worth more, then end the line
                     with a serving counter to sell it.
@@ -82,14 +98,50 @@
         <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
 
-    <!-- The inventory: every tile you own, exactly -->
+    <!-- The inventory: slots like in Minecraft. The top row is the hotbar. -->
     <section id="inventory-screen" class="screen hidden">
-        <div class="panel">
+        <div class="panel wide">
             <h1>Inventory</h1>
-            <p id="inventory-total">0 tiles</p>
-            <div id="inventory-list" class="item-list"></div>
+            <p id="inventory-total">0 items</p>
+            <p class="slot-label">Hotbar (shown in the factory)</p>
+            <div id="inv-hotbar" class="slot-grid hotbar-row"></div>
+            <p class="slot-label">Bag</p>
+            <div id="inv-bag" class="slot-grid"></div>
+            <p id="inv-info" class="slot-info"></p>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
+    </section>
+
+    <!-- Settings: username, game size, redeem codes -->
+    <section id="settings-screen" class="screen hidden">
+        <div class="panel">
+            <h1>⚙️ Settings</h1>
+
+            <div class="setting">
+                <label for="name-input">Username</label>
+                <div class="setting-row">
+                    <input id="name-input" class="text-input" type="text" maxlength="24" autocomplete="off" spellcheck="false">
+                    <button id="name-save" class="small">Save</button>
+                </div>
+                <p id="name-msg" class="setting-msg" aria-live="polite"></p>
+            </div>
+
+            <div class="setting">
+                <label for="scale-input">Game size: <span id="scale-value" class="points-text">80%</span></label>
+                <input id="scale-input" type="range" min="50" max="150" step="5" value="80">
+                <button id="scale-reset" class="small quiet">Reset to 80%</button>
+            </div>
+
+            <div class="setting">
+                <label for="code-input">Redeem code</label>
+                <div class="setting-row">
+                    <input id="code-input" class="text-input" type="text" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Enter a code">
+                    <button id="code-btn" class="small">Redeem</button>
+                </div>
+                <p id="code-msg" class="setting-msg" aria-live="polite"></p>
+            </div>
+        </div>
+        <button id="settings-back" class="quiet">Back</button>
     </section>
 
     <!-- The anvil: unlocked in the shop. Merging comes later. -->
