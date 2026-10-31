@@ -37,7 +37,7 @@ const MAX_SUSHI = 80;      // safety limit so the page never gets slow
 const COMPLETE_BOOST = 2;  // a rice ball that meets a fish becomes complete sushi: its value is multiplied by this
 const MAX_AGE = 60;        // sushi older than this many seconds disappears (stops endless loops)
 
-// The anvil: a one-time unlock in the shop (merging tiles comes later)
+// The anvil: a one-time unlock in the shop
 const ANVIL_COST = 100000000; // 100 million
 const MAX_PER_KIND = 9999; // most of one tile you can own
 
@@ -64,19 +64,45 @@ const TILES = [
 ];
 
 // Equipable items: you put them ON a piece you already placed (they are not bought with points).
-//   applies:    which pieces they can go on      multiplier: how much the piece earns
+// A piece can carry one of each. They come from redeem codes and from the Anvil.
+//   applies:    which pieces they can go on
+//   multiplier: how much more the piece earns      speed: how much faster the piece works
+//   colour:     the colour of the glow on the piece
+const MONEY_PIECES = ['source', 'fish', 'chef', 'exit'];
 const EQUIPS = [
     {
-        id: 'golden_soy_sauce', name: 'Golden soy sauce', emoji: '🍶', golden: true,
-        multiplier: 2, applies: ['source', 'fish', 'chef', 'exit'],
+        id: 'golden_soy_sauce', name: 'Golden soy sauce', emoji: '🍶', golden: true, colour: '#ffd34d',
+        multiplier: 2, applies: MONEY_PIECES,
         hint: 'Click a rice cooker, fish, chef or serving counter in the factory to make it golden: it earns 2x'
     },
+    {
+        id: 'soy_sauce', name: 'Soy sauce', emoji: '🫙', colour: '#d9823b',
+        multiplier: 1.5, applies: MONEY_PIECES,
+        hint: 'Click a rice cooker, fish, chef or serving counter to make it earn 1.5x'
+    },
+    {
+        id: 'wasabi', name: 'Wasabi', emoji: '🌿', colour: '#8fd14f',
+        speed: 2, applies: ['belt', 'source', 'fish', 'chef'],
+        hint: 'Click a belt, rice cooker, fish or chef to make it work 2x faster'
+    },
+];
+
+// Ingredients: they do nothing on their own, you merge them in the Anvil
+const MATERIALS = [
+    { id: 'spicy_drink', name: 'Spicy drink', emoji: '🌶️', hint: 'An ingredient. Merge it with soy sauce in the Anvil to make wasabi.' },
+];
+
+// The Anvil: merge items from your inventory into new ones
+const RECIPES = [
+    { out: 'soy_sauce',   n: 1, needs: [{ id: 'belt', n: 2 }] },
+    { out: 'spicy_drink', n: 1, needs: [{ id: 'exit', n: 1 }, { id: 'chef', n: 1 }] },
+    { out: 'wasabi',      n: 1, needs: [{ id: 'soy_sauce', n: 1 }, { id: 'spicy_drink', n: 1 }] },
 ];
 
 // The Remove tool is not an item, it is a button next to the hotbar
 const REMOVE_TOOL = {
     id: 'remove', name: 'Remove', emoji: '🗑️',
-    hint: 'Click a piece to take it back. A golden piece gives back its soy sauce first.'
+    hint: 'Click a piece to take it back. Upgrades on it (soy sauce, wasabi...) come off first, one by one.'
 };
 
 const TILE_BY_ID = {};
@@ -87,6 +113,9 @@ for (const t of TILES) {
 }
 for (const e of EQUIPS) {
     ITEM_BY_ID[e.id] = e;
+}
+for (const m of MATERIALS) {
+    ITEM_BY_ID[m.id] = m;
 }
 
 // Directions: 0 = right, 1 = down, 2 = left, 3 = up
@@ -469,6 +498,7 @@ function updateDisplay() {
     document.getElementById('anvil-btn').classList.toggle('hidden', !anvil);
     updateShop();
     updateInventory();
+    updateAnvil();
 }
 
 // =====================================================================
@@ -497,7 +527,7 @@ function buildShop() {
             buyTile(def);
         });
     }
-    addShopRow('anvil', '⚒️', 'Anvil', 'Unlocks merging tiles (coming soon)', buyAnvil);
+    addShopRow('anvil', '⚒️', 'Anvil', 'Unlocks the Anvil: merge items into new ones', buyAnvil);
 
     for (const button of document.querySelectorAll('.amount-btn')) {
         button.addEventListener('click', function () {
@@ -683,6 +713,107 @@ buildShop();
 buildInventory();
 
 // =====================================================================
+//  THE ANVIL: merge items from your inventory into new ones
+// =====================================================================
+const anvilRows = [];
+
+function buildAnvil() {
+    const list = document.getElementById('anvil-list');
+    for (const recipe of RECIPES) {
+        const out = ITEM_BY_ID[recipe.out];
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML =
+            '<span class="item-emoji"></span>' +
+            '<span class="item-info"><span class="item-name"></span><span class="item-sub"></span></span>';
+        row.querySelector('.item-emoji').innerText = out.emoji;
+        row.querySelector('.item-name').innerText = recipe.n + ' x ' + out.name;
+
+        const one = document.createElement('button');
+        one.className = 'item-buy';
+        one.innerText = 'Merge';
+        one.addEventListener('click', function () {
+            craft(recipe, 1);
+        });
+        const all = document.createElement('button');
+        all.className = 'item-buy quiet';
+        all.innerText = 'All';
+        all.addEventListener('click', function () {
+            craft(recipe, Infinity);
+        });
+        row.appendChild(one);
+        row.appendChild(all);
+        list.appendChild(row);
+        anvilRows.push({ recipe: recipe, sub: row.querySelector('.item-sub'), one: one, all: all });
+    }
+}
+
+// How many times could this recipe be made with what is in the bag?
+function craftable(recipe) {
+    let most = Infinity;
+    for (const need of recipe.needs) {
+        most = Math.min(most, Math.floor(countInSlots(inventory, need.id) / need.n));
+    }
+    return most;
+}
+
+// Takes n items out of the slots, starting from the last slot (so the hotbar is kept)
+function takeFromSlots(slots, id, n) {
+    for (let i = slots.length - 1; i >= 0 && n > 0; i--) {
+        if (slots[i] && slots[i].id === id) {
+            const take = Math.min(n, slots[i].n);
+            slots[i].n = slots[i].n - take;
+            n = n - take;
+            if (slots[i].n <= 0) {
+                slots[i] = null;
+            }
+        }
+    }
+}
+
+// times = 1 or Infinity (as many as you can). Returns how many were made.
+function craft(recipe, times) {
+    const box = document.getElementById('anvil-msg');
+    const out = ITEM_BY_ID[recipe.out];
+    const most = Math.min(craftable(recipe), times);
+    if (most < 1) {
+        setMessage('anvil-msg', "You don't have the items for that.", 'bad');
+        return 0;
+    }
+    // Try the most first; if the bag has no room for the result, try fewer
+    for (let count = most; count >= 1; count--) {
+        const copy = cloneSlots(inventory);
+        for (const need of recipe.needs) {
+            takeFromSlots(copy, need.id, need.n * count);
+        }
+        if (addToSlots(copy, recipe.out, recipe.n * count)) {
+            inventory = copy;
+            unsaved = true;
+            displayDirty = true;
+            saveSoon();
+            setMessage('anvil-msg', 'Made ' + (recipe.n * count) + ' x ' + out.name + '!', 'good');
+            return count;
+        }
+    }
+    setMessage('anvil-msg', 'Your inventory is full. Make some room first.', 'bad');
+    return 0;
+}
+
+function updateAnvil() {
+    for (const row of anvilRows) {
+        const parts = row.recipe.needs.map(function (need) {
+            const def = ITEM_BY_ID[need.id];
+            return need.n + ' x ' + def.name + ' (you have ' + format(countInSlots(inventory, need.id)) + ')';
+        });
+        row.sub.innerText = ITEM_BY_ID[row.recipe.out].hint + '  Needs: ' + parts.join(' + ');
+        const can = craftable(row.recipe) >= 1;
+        row.one.disabled = !can;
+        row.all.disabled = !can;
+    }
+}
+buildAnvil();
+
+// =====================================================================
 //  ANTI-AUTOCLICKER
 // =====================================================================
 const MAX_CLICKS_PER_SECOND = 12; // a fast human is around 6-10, so 12 leaves some room
@@ -777,17 +908,18 @@ function clickSquare(x, y) {
     const index = y * COLS + x;
     const cell = grid[index];
 
-    // Remove tool: golden soy sauce comes off first, then the piece itself
+    // Remove tool: upgrades (soy sauce, wasabi...) come off first, the last one put on first
     if (removeMode) {
         if (!cell) {
             return;
         }
-        if (cell.mod) {
-            if (!addToSlots(inventory, cell.mod, 1)) {
+        if (cell.mods.length > 0) {
+            const last = cell.mods[cell.mods.length - 1];
+            if (!addToSlots(inventory, last, 1)) {
                 showMessage('Your inventory is full.');
                 return;
             }
-            cell.mod = null;
+            cell.mods.pop();
         } else {
             if (!addToSlots(inventory, cell.kind, 1)) {
                 showMessage('Your inventory is full.');
@@ -807,16 +939,22 @@ function clickSquare(x, y) {
     }
     const def = ITEM_BY_ID[stack.id];
 
-    // An equipable item (golden soy sauce): goes ON a piece you already placed
+    // An ingredient: it is used in the Anvil, not in the factory
+    if (!TILE_BY_ID[def.id] && !def.applies) {
+        showMessage('The ' + def.name.toLowerCase() + ' is an ingredient. Merge it in the Anvil.');
+        return;
+    }
+
+    // An equipable item (soy sauce, wasabi...): goes ON a piece you already placed
     if (def.applies) {
         if (!cell) {
             showMessage('Click a piece you already placed to use the ' + def.name.toLowerCase() + ' on it.');
         } else if (!def.applies.includes(cell.kind)) {
-            showMessage('A ' + TILE_BY_ID[cell.kind].name.toLowerCase() + " can't be made golden.");
-        } else if (cell.mod) {
-            showMessage('That piece already has soy sauce on it.');
+            showMessage('The ' + def.name.toLowerCase() + " doesn't work on a " + TILE_BY_ID[cell.kind].name.toLowerCase() + '.');
+        } else if (cell.mods.includes(def.id)) {
+            showMessage('That piece already has ' + def.name.toLowerCase() + ' on it.');
         } else {
-            cell.mod = def.id;
+            cell.mods.push(def.id);
             useFromSlot(hotbarSel);
             unsaved = true;
             displayDirty = true;
@@ -835,7 +973,7 @@ function clickSquare(x, y) {
         }
         return;
     }
-    grid[index] = { kind: def.id, dir: rotation, mod: null };
+    grid[index] = { kind: def.id, dir: rotation, mods: [] };
     useFromSlot(hotbarSel);
     unsaved = true;
     displayDirty = true;
@@ -847,12 +985,26 @@ function clickSquare(x, y) {
 // Every sushi is an object: where it is (x, y), where it is heading (tx, ty),
 // how far along it is (p from 0 to 1), and how much it is worth (value).
 
-// How much a piece earns: 2 when it has golden soy sauce on it, otherwise 1
+// How much a piece earns: all its upgrades multiplied (golden 2 x soy sauce 1.5 = 3)
 function modMultiplier(cell) {
-    if (cell && cell.mod && ITEM_BY_ID[cell.mod]) {
-        return ITEM_BY_ID[cell.mod].multiplier || 1;
+    let m = 1;
+    if (cell && cell.mods) {
+        for (const id of cell.mods) {
+            m = m * (ITEM_BY_ID[id].multiplier || 1);
+        }
     }
-    return 1;
+    return m;
+}
+
+// How fast a piece works: wasabi makes it 2x
+function speedMultiplier(cell) {
+    let m = 1;
+    if (cell && cell.mods) {
+        for (const id of cell.mods) {
+            m = m * (ITEM_BY_ID[id].speed || 1);
+        }
+    }
+    return m;
 }
 
 function trySpawn(sx, sy, dir, value) {
@@ -904,7 +1056,7 @@ function sell(s, x, y, multiplier) {
     const gained = s.value * multiplier;
     points = points + gained;
     salesLog.push({ t: now, v: gained });
-    effects.push({ x: x, y: y, text: '+' + gained, age: 0 });
+    effects.push({ x: x, y: y, text: '+' + formatRate(gained), age: 0 });
     unsaved = true;
     displayDirty = true;
 }
@@ -953,7 +1105,7 @@ function stepSushi(s, dt) {
         }
     }
 
-    s.p = s.p + SPEED * dt;
+    s.p = s.p + SPEED * dt * speedMultiplier(cellAt(s.x, s.y)); // wasabi pieces are faster
     // "while" in case a lot of time passed (for example the tab was in the background)
     while (s.p >= 1 && !s.dead) {
         s.p = s.p - 1;
@@ -971,7 +1123,7 @@ function runFactory(dt) {
     for (let i = 0; i < grid.length; i++) {
         const cell = grid[i];
         if (cell && cell.kind === 'source') {
-            timers[i] = (timers[i] || 0) + dt;
+            timers[i] = (timers[i] || 0) + dt * speedMultiplier(cell);
             while (timers[i] >= SPAWN_EVERY) {
                 const x = i % COLS;
                 const y = Math.floor(i / COLS);
@@ -1061,8 +1213,28 @@ function drawEmoji(emoji, cx, cy, size) {
     ctx.fillText(emoji, cx, cy + 2);
 }
 
+// Upgrades on a piece: a coloured glow and edge for each, and its little icon in the corner
+function drawMods(x, y, mods) {
+    if (!mods || mods.length === 0) {
+        return;
+    }
+    for (let k = 0; k < mods.length; k++) {
+        const def = ITEM_BY_ID[mods[k]];
+        ctx.fillStyle = def.colour;
+        ctx.globalAlpha = 0.22;
+        roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = def.colour;
+        ctx.lineWidth = 2.5;
+        roundedRect(x + 2 + k * 3, y + 2 + k * 3, CELL - 4 - k * 6, CELL - 4 - k * 6, 10);
+        ctx.stroke();
+        drawEmoji(def.emoji, x + CELL - 12 - k * 14, y + 12, 13);
+    }
+}
+
 // Draws one piece in the square at (gx, gy)
-function drawPiece(kind, dir, gx, gy, time, mod) {
+function drawPiece(kind, dir, gx, gy, time, mods) {
     const x = gx * CELL;
     const y = gy * CELL;
     const cx = x + CELL / 2;
@@ -1081,7 +1253,8 @@ function drawPiece(kind, dir, gx, gy, time, mod) {
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        const phase = (time * SPEED) % 1;
+        const cellNow = mods && mods.length ? { mods: mods } : null;
+        const phase = (time * SPEED * speedMultiplier(cellNow)) % 1;
         for (let k = 0; k < 2; k++) {
             const px = (((phase + k * 0.5) % 1) - 0.5) * CELL * 0.8;
             ctx.beginPath();
@@ -1091,6 +1264,7 @@ function drawPiece(kind, dir, gx, gy, time, mod) {
             ctx.stroke();
         }
         ctx.restore();
+        drawMods(x, y, mods);
         return;
     }
 
@@ -1101,21 +1275,7 @@ function drawPiece(kind, dir, gx, gy, time, mod) {
     ctx.fill();
     drawEmoji(TILE_BY_ID[kind].emoji, cx, cy, 28);
 
-    // Golden soy sauce: a golden glow, a golden edge and a twinkling sparkle
-    if (mod) {
-        const glow = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
-        glow.addColorStop(0, 'rgba(255, 214, 77, 0.5)');
-        glow.addColorStop(1, 'rgba(255, 160, 30, 0.2)');
-        ctx.fillStyle = glow;
-        roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
-        ctx.fill();
-        ctx.strokeStyle = '#ffd34d';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * 3 + gx + gy));
-        drawEmoji('✨', x + CELL - 13, y + 13, 14);
-        ctx.globalAlpha = 1;
-    }
+    drawMods(x, y, mods);
 
     // The rice cooker also shows which way it sends sushi
     if (kind === 'source') {
@@ -1164,9 +1324,9 @@ function drawSushi(cx, cy, value, complete) {
         ctx.textBaseline = 'middle';
         ctx.lineWidth = 3;
         ctx.strokeStyle = '#0f1f1a';
-        ctx.strokeText(value, cx, cy - h / 2 - 11);
+        ctx.strokeText(formatRate(value), cx, cy - h / 2 - 11);
         ctx.fillStyle = '#b7e05a';
-        ctx.fillText(value, cx, cy - h / 2 - 11);
+        ctx.fillText(formatRate(value), cx, cy - h / 2 - 11);
     }
 }
 
@@ -1200,7 +1360,7 @@ function draw() {
     for (let i = 0; i < grid.length; i++) {
         const cell = grid[i];
         if (cell) {
-            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time, cell.mod);
+            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time, cell.mods);
         }
     }
 
@@ -1245,11 +1405,13 @@ function draw() {
             colour = 'rgba(246, 243, 234, 0.35)';
         } else if (def.applies) {
             // Equipable: only works on a matching piece with nothing on it yet
-            const works = cell && def.applies.includes(cell.kind) && !cell.mod;
-            colour = works ? '#ffd34d' : '#ff9c9c';
+            const works = cell && def.applies.includes(cell.kind) && !cell.mods.includes(def.id);
+            colour = works ? def.colour : '#ff9c9c';
+        } else if (!TILE_BY_ID[def.id]) {
+            colour = '#ff9c9c';            // an ingredient can't be placed
         } else if (!cell) {
             ctx.globalAlpha = 0.55;
-            drawPiece(def.id, rotation, hover.x, hover.y, time, null);
+            drawPiece(def.id, rotation, hover.x, hover.y, time, []);
             ctx.globalAlpha = 1;
         } else if (cell.kind !== def.id) {
             colour = '#ff9c9c';
@@ -1293,13 +1455,13 @@ canvas.addEventListener('click', function (event) {
 //  SAVING
 // =====================================================================
 // The grid is saved as a list of short texts, one per square: "" (empty) or "belt:0".
-// A golden piece adds a third part: "fish:0:golden_soy_sauce".
+// Upgrades add a third part: "fish:0:golden_soy_sauce,wasabi".
 function gridToList() {
     return grid.map(function (cell) {
         if (!cell) {
             return '';
         }
-        return cell.kind + ':' + cell.dir + (cell.mod ? ':' + cell.mod : '');
+        return cell.kind + ':' + cell.dir + (cell.mods.length > 0 ? ':' + cell.mods.join(',') : '');
     });
 }
 
@@ -1313,10 +1475,12 @@ function listToGrid(list) {
         const kind = parts[0];
         const dir = Number(parts[1]);
         if (TILE_BY_ID[kind] && dir >= 0 && dir <= 3) {
-            const cell = { kind: kind, dir: dir, mod: null };
-            const equip = ITEM_BY_ID[parts[2]];
-            if (equip && equip.applies && equip.applies.includes(kind)) {
-                cell.mod = equip.id;
+            const cell = { kind: kind, dir: dir, mods: [] };
+            for (const id of String(parts[2] || '').split(',')) {
+                const equip = ITEM_BY_ID[id];
+                if (equip && equip.applies && equip.applies.includes(kind) && !cell.mods.includes(id)) {
+                    cell.mods.push(id);
+                }
             }
             result[i] = cell;
         }
