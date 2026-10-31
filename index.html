@@ -159,13 +159,22 @@
         <button id="settings-back" class="quiet">Back</button>
     </section>
 
-    <!-- The anvil: unlocked in the shop. Merge items from your inventory into new ones. -->
+    <!-- The anvil: unlocked in the shop. Two slots: put items in and see what happens. -->
     <section id="anvil-screen" class="screen hidden">
         <div class="panel wide">
             <h1>⚒️ Anvil</h1>
-            <p>Merge items from your inventory into new ones. Wasabi and soy sauce go onto pieces in the factory.</p>
-            <div id="anvil-list" class="item-list"></div>
+            <p>Put items in the two slots and see what happens...</p>
+            <div class="anvil-row">
+                <div id="anvil-in" class="anvil-slots"></div>
+                <span class="anvil-arrow">→</span>
+                <div id="anvil-out" class="anvil-slots"></div>
+            </div>
             <p id="anvil-msg" class="setting-msg" aria-live="polite"></p>
+            <p class="slot-label">Hotbar</p>
+            <div id="anv-hotbar" class="slot-grid hotbar-row"></div>
+            <p class="slot-label">Bag</p>
+            <div id="anv-bag" class="slot-grid"></div>
+            <p class="slot-info">Click a stack, then click a slot. Right-click moves one item. Click the result to take it (Shift-click takes as many as possible).</p>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
