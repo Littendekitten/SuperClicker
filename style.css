@@ -940,3 +940,122 @@ input[type="range"] {
         animation: none;
     }
 }
+
+
+/* ---------- Trading ---------- */
+.trade-lobby {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+}
+
+/* .hidden is defined far above, so it needs help to beat the display: flex just above */
+.trade-lobby.hidden {
+    display: none;
+}
+
+.trade-code-line {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    margin: 0;
+}
+
+#trade-code {
+    font-size: 1.4rem;
+    letter-spacing: 0.15em;
+}
+
+.trade-status {
+    min-height: 1.4em;
+    margin: 0.4rem 0;
+    color: var(--rice-muted);
+}
+
+.trade-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.trade-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-radius: 1rem;
+    background: var(--nori-light);
+    border: 2px solid transparent;
+    text-align: left;
+}
+
+.trade-col.accepted {
+    border-color: var(--wasabi);
+}
+
+.trade-col h3 {
+    margin: 0;
+}
+
+.trade-points-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.trade-points-row .text-input {
+    max-width: 9rem;
+    text-align: right;
+}
+
+.trade-offer,
+.trade-bag {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(3.4rem, 1fr));
+    gap: 0.35rem;
+    min-height: 3.6rem;
+    align-content: start;
+}
+
+.trade-offer .slot,
+.trade-bag .slot {
+    font-size: 1.4rem;
+}
+
+.trade-ok {
+    min-height: 1.4em;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--rice-muted);
+}
+
+.trade-col.accepted .trade-ok {
+    color: var(--wasabi);
+    font-weight: 600;
+}
+
+.trade-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.875rem;
+}
+
+#trade-accept:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+@media (max-width: 34rem) {
+    .trade-cols {
+        grid-template-columns: 1fr;
+    }
+}
+
+#trade-code-input {
+    text-transform: uppercase;
+}
