@@ -11,6 +11,8 @@
 //   bonus:     adds this much value          completes: turns a rice ball into complete sushi
 //   mult:      multiplies the value          speed: how fast it works (2 = twice as fast)
 //   sell:      a serving piece pays this many times the value
+//   stackMax:  1 = it never stacks (every one gets its own slot)    editable: true = it has an inside you can Edit
+//   role 'table': a little factory you can place in a factory (see the Chopping table below)
 export const TILES = [
     // ---- the basics
     { id: 'belt',   name: 'Belt',            emoji: '➡️',  role: 'belt',    colour: '#26382f', baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
@@ -50,6 +52,15 @@ export const TILES = [
     // ---- only from the Anvil (or a code): better serving pieces
     { id: 'bento',      name: 'Bento counter', emoji: '🍱', role: 'exit', colour: '#6a3526', shop: false, hint: 'Sells sushi for double its value', sell: 2 },
     { id: 'restaurant', name: 'Restaurant',    emoji: '🏯', role: 'exit', colour: '#7a3b2a', shop: false, hint: 'Sells sushi for 4x its value',      sell: 4 },
+
+    // ---- only from the weirdness: fill a whole factory with diamonds
+    // A factory inside your factory. Place it, then use the Edit tool on it (or Edit it in the Inventory)
+    // to build inside it. You can even put chopping tables inside chopping tables, forever.
+    {
+        id: 'chopping_table', name: 'Chopping table', emoji: '🔪', role: 'table', colour: '#5b4326', shop: false,
+        stackMax: 1, editable: true,
+        hint: 'A factory inside your factory. Place it, then Edit it to build inside. What it sells is yours. It never stacks.'
+    },
 ];
 
 // Equipable items: you put them ON a piece you already placed (they are not bought with points).
@@ -106,6 +117,12 @@ for (const chain of MERGE_CHAINS) {
 export const REMOVE_TOOL = {
     id: 'remove', name: 'Remove', emoji: '🗑️',
     hint: 'Click a piece to take it back. Upgrades on it (soy sauce, wasabi...) come off first, one by one.'
+};
+
+// The Edit tool is a button next to the Remove button: click a chopping table to go inside it
+export const EDIT_TOOL = {
+    id: 'edit', name: 'Edit', emoji: '✏️',
+    hint: 'Click a chopping table in the factory to go inside it and build there. (Right-click or Shift-click a table does the same.)'
 };
 
 export const TILE_BY_ID = {};
