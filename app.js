@@ -69,9 +69,11 @@ const TILES = [
     { id: 'exit',   name: 'Serving counter', emoji: '🏮',  role: 'exit',    colour: '#5a2f22', baseCost: 10,  growth: 1,    hint: 'Sells what arrives for its value' },
 
     // ---- more things in the Shop
-    { id: 'express_belt', name: 'Express belt', emoji: '⏩', role: 'belt',    colour: '#3d3a1c', baseCost: 30, growth: 1,  hint: 'A belt that moves sushi 2x faster', speed: 2 },
     { id: 'cucumber',     name: 'Cucumber',     emoji: '🥒', role: 'topping', colour: '#2c4a26', baseCost: 30, growth: 1, hint: 'Sushi passing by is worth +1 (it does not make complete sushi)', bonus: 1 },
     { id: 'salt',         name: 'Salt shaker',  emoji: '🧂', role: 'topping', colour: '#47404f', baseCost: 80, growth: 1,  hint: 'Multiplies the value of sushi passing by by 1.25', mult: 1.25 },
+
+    // ---- only from the Anvil (or a code): a faster belt
+    { id: 'express_belt', name: 'Express belt', emoji: '⏩', role: 'belt',    colour: '#3d3a1c', shop: false, hint: 'A belt that moves sushi 2x faster', speed: 2 },
 
     // ---- only from the Anvil (or a code): faster rice cookers
     { id: 'rice_press',   name: 'Rice press',   emoji: '🍙', role: 'source',  colour: '#2f5a45', shop: false, hint: 'Makes a rice ball every second', speed: 2 },
@@ -132,6 +134,7 @@ const RECIPES = [
     { out: 'soy_sauce',   n: 1, needs: [{ id: 'belt', n: 2 }] },
     { out: 'spicy_drink', n: 1, needs: [{ id: 'exit', n: 1 }, { id: 'chef', n: 1 }] },
     { out: 'wasabi',      n: 1, needs: [{ id: 'soy_sauce', n: 1 }, { id: 'spicy_drink', n: 1 }] },
+    { out: 'express_belt', n: 1, needs: [{ id: 'spicy_drink', n: 100 }, { id: 'belt', n: 100 }] },
 ];
 
 // Merge chains: 2 of one piece make 1 of the next one in the list
