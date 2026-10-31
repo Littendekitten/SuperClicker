@@ -36,6 +36,7 @@
         <h1>Welcome To SushiClicker!</h1>
         <p id="login-status"></p>
         <button data-goto="game-screen">Start Game</button>
+        <button class="quiet" data-goto="trade-screen">🤝 Trade</button>
         <button class="quiet" data-goto="leaderboard-screen">🏆 Leaderboard</button>
         <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
         <button id="logout-btn">Sign out</button>
@@ -57,6 +58,7 @@
                 <button class="quiet" data-goto="shop-screen">🛒 Shop</button>
                 <button class="quiet" data-goto="inventory-screen">🎒 Inventory</button>
                 <button id="anvil-btn" class="quiet hidden" data-goto="anvil-screen">⚒️ Anvil</button>
+                <button class="quiet" data-goto="trade-screen">🤝 Trade</button>
                 <button class="quiet" data-goto="leaderboard-screen">🏆 Leaderboard</button>
                 <button class="quiet" data-goto="settings-screen">⚙️ Settings</button>
                 <button data-goto="menu-screen">Menu</button>
@@ -120,6 +122,65 @@
             <button id="inv-edit-btn" class="small hidden">✏️ Edit chopping table</button>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
+    </section>
+
+    <!-- Trading: two players swap items and points. One creates a trade and shares the code, the other joins. -->
+    <section id="trade-screen" class="screen hidden">
+        <div class="panel wide">
+            <h1>🤝 Trade</h1>
+
+            <!-- No trade yet -->
+            <div id="trade-lobby" class="trade-lobby">
+                <p>Swap items and points with a friend. One of you creates a trade and sends the code, the other joins with it.</p>
+                <button id="trade-create">Create a trade</button>
+                <div class="setting">
+                    <label for="trade-code-input">Join a trade</label>
+                    <div class="setting-row">
+                        <input id="trade-code-input" class="text-input" type="text" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Trade code">
+                        <button id="trade-join" class="small">Join</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- A trade is going on -->
+            <div id="trade-room" class="hidden">
+                <p class="trade-code-line">Trade code: <span id="trade-code" class="points-text"></span>
+                    <button id="trade-copy" class="small quiet">Copy</button></p>
+                <p id="trade-status" class="trade-status" aria-live="polite"></p>
+
+                <div class="trade-cols">
+                    <div class="trade-col" id="trade-mine-col">
+                        <h3>You</h3>
+                        <label class="trade-points-row" for="trade-points">Points
+                            <input id="trade-points" class="text-input" type="number" min="0" step="1" value="0">
+                        </label>
+                        <div id="trade-mine" class="trade-offer"></div>
+                        <p id="trade-mine-ok" class="trade-ok"></p>
+                    </div>
+                    <div class="trade-col" id="trade-theirs-col">
+                        <h3 id="trade-their-title">Them</h3>
+                        <p class="trade-points-row">Points <span id="trade-their-points" class="points-text">0</span></p>
+                        <div id="trade-theirs" class="trade-offer"></div>
+                        <p id="trade-their-ok" class="trade-ok"></p>
+                    </div>
+                </div>
+
+                <div id="trade-bag-box">
+                    <p class="slot-label">Your items: click to offer one, Shift-click to offer all. Click an offered item to take it back.</p>
+                    <div id="trade-bag" class="trade-bag"></div>
+                </div>
+
+                <div class="trade-buttons">
+                    <button id="trade-accept">Accept</button>
+                    <button id="trade-cancel" class="quiet">Cancel trade</button>
+                </div>
+            </div>
+
+            <p id="trade-msg" class="setting-msg" aria-live="polite"></p>
+            <button id="trade-close" class="small hidden">Close</button>
+        </div>
+        <button class="quiet" data-goto="game-screen">Back to factory</button>
+        <button class="quiet" data-goto="menu-screen">Menu</button>
     </section>
 
     <!-- Leaderboard: the 10 players with the most points -->
