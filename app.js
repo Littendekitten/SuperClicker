@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, setDoc, writeBatch, collection, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
-import { TILES, EQUIPS, RECIPES, REMOVE_TOOL, TILE_BY_ID, ITEM_BY_ID } from "./data.js";
+import { TILES, EQUIPS, RECIPES, REMOVE_TOOL, EDIT_TOOL, TILE_BY_ID, ITEM_BY_ID } from "./data.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDD-FIJF2L5e7oCzlSIdC2EIt7CMZxV7P0",
@@ -30,6 +30,11 @@ const COLS = 8;
 const ROWS = 6;
 const CELL = 56;           // size of one square, in canvas pixels
 const RES = 2;             // draw at 2x so it stays sharp on big or retina screens
+const CELLS = COLS * ROWS; // squares on one factory floor
+
+// Chopping tables: little factories inside a factory (they can hold more chopping tables, forever)
+const TABLE_ID = 'chopping_table';
+const MAX_SAVE_CHARS = 900000; // a Firestore document can hold about 1 million characters
 
 // How the sushi moves
 const SPEED = 1.5;         // squares per second
@@ -63,14 +68,15 @@ const ARROWS = ['→', '↓', '←', '↑'];
 // =====================================================================
 let points = 0;
 let chopsticks = 0;      // how many Chopsticks you own
-let grid = [];           // the factory: COLS * ROWS squares, each null or { kind, dir }
+let rootLayer = null;    // the main factory (a "layer": see newLayer)
+let viewPath = [];       // the chopping tables you are inside, outermost first. [] = the main factory
+let viewOrigin = 'factory'; // where "Leave table" goes back to: 'factory' or 'inventory'
+let editMode = false;    // true while the Edit tool is selected
 let inventory = [];      // INV_SLOTS slots, each null or { id, n }. Slots 0-8 are the hotbar.
+                         // A chopping table slot also has table: its inside (a "layer", see newLayer)
 let anvil = false;       // true once you unlocked the anvil
 let buyAmount = 1;       // the shop buys this many at a time
-let sushi = [];          // all the sushi currently on the belts
-let timers = {};         // per rice cooker: seconds since its last sushi
 let salesLog = [];       // recent sales, used to show "per second"
-let effects = [];        // little "+5" popups
 
 let hotbarSel = 0;        // which hotbar slot (0-8) is selected
 let removeMode = false;  // true while the Remove tool is selected
@@ -84,8 +90,82 @@ let currentUser = null;  // set only after the player's data has loaded
 let unsaved = false;     // true when there are changes not yet in Firestore
 let displayDirty = true; // true when the numbers on screen need refreshing
 
+let weirdDeclined = false; // you said "Stop the weirdness": we don't ask again until the diamonds are gone
+let weirdBusy = false;     // true while the weirdness popup or event is on screen
+let weirdTimers = [];      // the timeouts of the event, so they can be cancelled
+
 function emptyGrid() {
-    return new Array(COLS * ROWS).fill(null);
+    return new Array(CELLS).fill(null);
+}
+
+// A "layer" is one factory floor: the main factory, or the inside of a chopping table.
+//   grid:    COLS * ROWS squares, each null or { kind, dir, mods, table }
+//            (table is only on chopping tables: it is the layer inside that table)
+//   sushi, timers, effects: what is going on on this floor right now (these are never saved)
+function newLayer() {
+    return { grid: emptyGrid(), sushi: [], timers: {}, effects: [] };
+}
+
+// The floor you are looking at: the main factory, or the inside of the table you opened
+function viewLayer() {
+    return viewPath.length > 0 ? viewPath[viewPath.length - 1] : rootLayer;
+}
+
+// Copies a floor and everything inside it (also the tables inside the tables...).
+// It loops instead of calling itself, so a table inside a table inside a table... never runs out of stack.
+function cloneLayer(layer) {
+    const copy = newLayer();
+    const todo = [[layer, copy]];
+    while (todo.length > 0) {
+        const pair = todo.pop();
+        for (let i = 0; i < pair[0].grid.length; i++) {
+            const cell = pair[0].grid[i];
+            if (cell) {
+                const cellCopy = { kind: cell.kind, dir: cell.dir, mods: cell.mods.slice() };
+                if (cell.table) {
+                    cellCopy.table = newLayer();
+                    todo.push([cell.table, cellCopy.table]);
+                }
+                pair[1].grid[i] = cellCopy;
+            }
+        }
+    }
+    return copy;
+}
+
+// Is "target" this floor, or somewhere inside it? (Used so a table can never go inside itself.)
+function layerContains(layer, target) {
+    const todo = [layer];
+    while (todo.length > 0) {
+        const floor = todo.pop();
+        if (floor === target) {
+            return true;
+        }
+        for (const cell of floor.grid) {
+            if (cell && cell.table) {
+                todo.push(cell.table);
+            }
+        }
+    }
+    return false;
+}
+
+// How many pieces are on this floor, counting the ones inside tables too
+function countPieces(layer) {
+    let n = 0;
+    const todo = [layer];
+    while (todo.length > 0) {
+        const floor = todo.pop();
+        for (const cell of floor.grid) {
+            if (cell) {
+                n = n + 1;
+                if (cell.table) {
+                    todo.push(cell.table);
+                }
+            }
+        }
+    }
+    return n;
 }
 
 function emptyInventory() {
@@ -101,11 +181,12 @@ function resetGame() {
     invSel = null;
     anvilIn = [null, null];
     inventory = emptyInventory();
-    grid = emptyGrid();
-    sushi = [];
-    timers = {};
+    rootLayer = newLayer();
+    viewPath = [];
+    viewOrigin = 'factory';
+    editMode = false;
+    cancelWeird();
     salesLog = [];
-    effects = [];
     displayDirty = true;
 }
 resetGame();
@@ -161,19 +242,35 @@ function chopsticksCost() {
     return Math.ceil(CHOPSTICKS_BASE_COST * Math.pow(PRICE_GROWTH, chopsticks));
 }
 
-function placedCount(kind) {
-    let n = 0;
-    for (const cell of grid) {
-        if (cell && cell.kind === kind) {
-            n = n + 1;
+// Everything you own, counted per kind: in the inventory plus placed on the factory.
+// Pieces inside chopping tables count too (whether the table is in your bag or placed).
+function ownedTotals() {
+    const totals = {};
+    const floors = [rootLayer];
+    for (const s of inventory) {
+        if (s) {
+            totals[s.id] = (totals[s.id] || 0) + s.n;
+            if (s.table) {
+                floors.push(s.table);
+            }
         }
     }
-    return n;
+    while (floors.length > 0) {
+        const floor = floors.pop();
+        for (const cell of floor.grid) {
+            if (cell) {
+                totals[cell.kind] = (totals[cell.kind] || 0) + 1;
+                if (cell.table) {
+                    floors.push(cell.table);
+                }
+            }
+        }
+    }
+    return totals;
 }
 
-// Everything you own of one kind: in the inventory plus placed on the factory
 function ownedCount(kind) {
-    return countInSlots(inventory, kind) + placedCount(kind);
+    return ownedTotals()[kind] || 0;
 }
 
 // ---- Inventory slots. Every helper takes the slot list, so it also works on a copy.
@@ -187,20 +284,36 @@ function countInSlots(slots, id) {
     return n;
 }
 
-function cloneSlots(slots) {
+// withTables = false: the copy shares the chopping tables with the original (fine when
+// you only want to check if something fits, because that never changes a table)
+function cloneSlots(slots, withTables) {
     return slots.map(function (s) {
-        return s ? { id: s.id, n: s.n } : null;
+        if (!s) {
+            return null;
+        }
+        const copy = { id: s.id, n: s.n };
+        if (s.table) {
+            copy.table = withTables === false ? s.table : cloneLayer(s.table);
+        }
+        return copy;
     });
+}
+
+// How many fit in one slot: 999 for most things, 1 for a chopping table (it never stacks)
+function stackMax(id) {
+    const def = ITEM_BY_ID[id];
+    return def && def.stackMax ? def.stackMax : MAX_STACK;
 }
 
 // Is there room for n more of this item?
 function roomFor(slots, id, n) {
+    const max = stackMax(id);
     let room = 0;
     for (const s of slots) {
         if (!s) {
-            room = room + MAX_STACK;
+            room = room + max;
         } else if (s.id === id) {
-            room = room + MAX_STACK - s.n;
+            room = room + max - s.n;
         }
     }
     return room >= n;
@@ -208,21 +321,27 @@ function roomFor(slots, id, n) {
 
 // Adds n items: tops up existing stacks first, then uses the first empty slots.
 // All or nothing: returns false (and changes nothing) when there is no room.
-function addToSlots(slots, id, n) {
+// "table" is for chopping tables only: the inside to give it (a new empty table if you leave it out).
+function addToSlots(slots, id, n, table) {
     if (!roomFor(slots, id, n)) {
         return false;
     }
+    const max = stackMax(id);
     for (const s of slots) {
-        if (n > 0 && s && s.id === id && s.n < MAX_STACK) {
-            const add = Math.min(n, MAX_STACK - s.n);
+        if (n > 0 && s && s.id === id && s.n < max) {
+            const add = Math.min(n, max - s.n);
             s.n = s.n + add;
             n = n - add;
         }
     }
     for (let i = 0; i < slots.length && n > 0; i++) {
         if (!slots[i]) {
-            const add = Math.min(n, MAX_STACK);
+            const add = Math.min(n, max);
             slots[i] = { id: id, n: add };
+            if (id === TABLE_ID) {
+                slots[i].table = table || newLayer();
+                table = null; // every other table gets its own new inside
+            }
             n = n - add;
         }
     }
@@ -259,8 +378,9 @@ function moveSlot(from, to, one) {
     }
     const a = getSlotAt(from);
     const b = getSlotAt(to);
+    const single = stackMax(a.id) === 1; // a chopping table: always moves as a whole, never merges
 
-    if (one) {
+    if (one && !single) {
         if (!b) {
             setSlotAt(to, { id: a.id, n: 1 });
         } else if (b.id === a.id && b.n < MAX_STACK) {
@@ -275,7 +395,7 @@ function moveSlot(from, to, one) {
     } else if (!b) {
         setSlotAt(to, a);
         setSlotAt(from, null);
-    } else if (b.id === a.id) {
+    } else if (b.id === a.id && !single) {
         const moved = Math.min(MAX_STACK - b.n, a.n);
         b.n = b.n + moved;
         a.n = a.n - moved;
@@ -295,7 +415,7 @@ function moveSlot(from, to, one) {
 function stowAnvil() {
     for (let k = 0; k < anvilIn.length; k++) {
         const s = anvilIn[k];
-        if (s && addToSlots(inventory, s.id, s.n)) {
+        if (s && addToSlots(inventory, s.id, s.n, s.table)) {
             anvilIn[k] = null;
             unsaved = true;
             displayDirty = true;
@@ -305,10 +425,10 @@ function stowAnvil() {
 
 // The inventory as it is saved: items still in the Anvil are counted in
 function inventoryForSave() {
-    const copy = cloneSlots(inventory);
+    const copy = cloneSlots(inventory, false); // only used to save, so the tables don't need copying
     for (const s of anvilIn) {
         if (s) {
-            addToSlots(copy, s.id, s.n);
+            addToSlots(copy, s.id, s.n, s.table);
         }
     }
     return copy;
@@ -319,9 +439,9 @@ function toolCost(def) {
     return Math.ceil(def.baseCost * Math.pow(def.growth, ownedCount(def.id)));
 }
 
-// Price of buying "amount" pieces in a row
-function priceFor(def, amount) {
-    const owned = ownedCount(def.id);
+// Price of buying "amount" pieces in a row (ownedNow: how many you own, if you already counted)
+function priceFor(def, amount, ownedNow) {
+    const owned = ownedNow === undefined ? ownedCount(def.id) : ownedNow;
     let total = 0;
     for (let i = 0; i < amount; i++) {
         total = total + Math.ceil(def.baseCost * Math.pow(def.growth, owned + i));
@@ -356,6 +476,11 @@ function showScreen(screenId) {
     }
     currentScreen = screenId;
     invSel = null;
+    // You stay inside a table while you visit the Shop or the Inventory, but not on other screens
+    if (screenId !== 'game-screen' && screenId !== 'shop-screen' && screenId !== 'inventory-screen') {
+        viewPath = [];
+        viewOrigin = 'factory';
+    }
     const screens = document.querySelectorAll('.screen');
     for (const screen of screens) {
         screen.classList.add('hidden');
@@ -369,6 +494,9 @@ function showScreen(screenId) {
     }
     playMusicFor(screenId);
     updateDisplay();
+    if (screenId === 'game-screen') {
+        setTimeout(checkWeirdness, 350); // a factory full of diamonds is weird
+    }
 }
 
 // =====================================================================
@@ -376,6 +504,7 @@ function showScreen(screenId) {
 // =====================================================================
 const hotbarParts = [];  // one { button, emoji, count } per hotbar slot
 let removeButton = null;
+let editButton = null;
 
 function buildToolbar() {
     const hotbar = document.getElementById('hotbar');
@@ -408,9 +537,24 @@ function buildToolbar() {
         '<span class="tool-cost">take back</span>';
     removeButton.addEventListener('click', function () {
         removeMode = !removeMode;
+        editMode = false;
         displayDirty = true;
     });
     bar.appendChild(removeButton);
+
+    editButton = document.createElement('button');
+    editButton.className = 'tool';
+    editButton.title = EDIT_TOOL.hint;
+    editButton.innerHTML =
+        '<span class="tool-emoji">' + EDIT_TOOL.emoji + '</span>' +
+        '<span class="tool-name">Edit</span>' +
+        '<span class="tool-cost">open table</span>';
+    editButton.addEventListener('click', function () {
+        editMode = !editMode;
+        removeMode = false;
+        displayDirty = true;
+    });
+    bar.appendChild(editButton);
 
     const rotate = document.createElement('button');
     rotate.className = 'tool';
@@ -428,7 +572,61 @@ buildToolbar();
 function selectHotbar(i) {
     hotbarSel = i;
     removeMode = false;
+    editMode = false;
     displayDirty = true;
+}
+
+// ---- Going inside chopping tables
+// From the factory: the table you clicked becomes the floor you look at
+function enterTable(layer) {
+    if (viewPath.length === 0) {
+        viewOrigin = 'factory';
+    }
+    viewPath.push(layer);
+    hover = null;
+    displayDirty = true;
+}
+
+// From the Inventory: edit a table that is in your bag
+function openTableFromInventory(layer) {
+    viewPath = [layer];
+    viewOrigin = 'inventory';
+    hover = null;
+    showScreen('game-screen');
+}
+
+function leaveTable() {
+    if (viewPath.length === 0) {
+        return;
+    }
+    viewPath.pop();
+    hover = null;
+    displayDirty = true;
+    if (viewPath.length === 0 && viewOrigin === 'inventory') {
+        viewOrigin = 'factory';
+        showScreen('inventory-screen');
+    }
+}
+
+// The bar above the factory while you are inside a table: where you are, and the way back
+function updateTableBar() {
+    const inside = viewPath.length > 0;
+    document.getElementById('table-bar').classList.toggle('hidden', !inside);
+    document.querySelector('.factory').classList.toggle('in-table', inside);
+    document.getElementById('factory-title').innerText = inside ? '🔪 Chopping Table' : 'Sushi Factory';
+    if (!inside) {
+        return;
+    }
+    const depth = viewPath.length;
+    let trail = viewOrigin === 'inventory' ? '🎒 Inventory' : '🏭 Factory';
+    const shown = Math.min(depth, 3);
+    trail = trail + (depth > shown ? ' › …' : '');
+    for (let i = 0; i < shown; i++) {
+        trail = trail + ' › 🔪 Table';
+    }
+    document.getElementById('table-trail').innerText = trail + ' (depth ' + depth + ')';
+    document.getElementById('table-back').innerText =
+        depth === 1 && viewOrigin === 'inventory' ? '⬅ Back to Inventory' : '⬅ Leave table';
 }
 
 function rotatePieces() {
@@ -442,7 +640,9 @@ document.addEventListener('keydown', function (event) {
     if (!inGame) {
         return;
     }
-    if (event.key === 'r' || event.key === 'R') {
+    if (event.key === 'Escape' && !weirdBusy) {
+        leaveTable();
+    } else if (event.key === 'r' || event.key === 'R') {
         rotatePieces();
     } else if (event.key >= '1' && event.key <= '9') {
         selectHotbar(Number(event.key) - 1);
@@ -455,6 +655,7 @@ function paintSlot(parts, stack) {
     parts.emoji.innerText = def ? def.emoji : '';
     parts.count.innerText = stack && stack.n > 1 ? String(stack.n) : '';
     parts.button.classList.toggle('golden', !!(def && def.golden));
+    parts.button.classList.toggle('woody', !!(def && def.editable));
     parts.button.title = def ? def.name + (stack.n > 1 ? ' x' + stack.n : '') : 'Empty slot';
 }
 
@@ -490,6 +691,8 @@ function updateDisplay() {
         hotbarParts[i].button.classList.toggle('selected', !removeMode && hotbarSel === i);
     }
     removeButton.classList.toggle('selected', removeMode);
+    editButton.classList.toggle('selected', editMode);
+    updateTableBar();
     document.getElementById('rotate-arrow').innerText = ARROWS[rotation];
 
     // What the selected thing does
@@ -497,6 +700,8 @@ function updateDisplay() {
     let info = 'Empty slot. Open the Inventory to put something here.';
     if (removeMode) {
         info = REMOVE_TOOL.emoji + ' ' + REMOVE_TOOL.name + ': ' + REMOVE_TOOL.hint;
+    } else if (editMode) {
+        info = EDIT_TOOL.emoji + ' ' + EDIT_TOOL.name + ': ' + EDIT_TOOL.hint;
     } else if (held) {
         const def = ITEM_BY_ID[held.id];
         info = def.emoji + ' ' + def.name + ': ' + def.hint;
@@ -548,6 +753,10 @@ function buildShop() {
 
 function updateShop() {
     document.getElementById('shop-score').innerText = format(points);
+    if (currentScreen !== 'shop-screen') {
+        return; // nothing to refresh while the shop is closed
+    }
+    const owned = ownedTotals();
 
     for (const button of document.querySelectorAll('.amount-btn')) {
         button.classList.toggle('selected', Number(button.dataset.amount) === buyAmount);
@@ -555,11 +764,12 @@ function updateShop() {
 
     for (const def of SHOP_TILES) {
         const row = shopRows[def.id];
-        const price = priceFor(def, buyAmount);
+        const have = owned[def.id] || 0;
+        const price = priceFor(def, buyAmount, have);
         const room = roomFor(inventory, def.id, buyAmount);
-        row.sub.innerText = def.hint + ' (you own ' + format(ownedCount(def.id)) + ')';
+        row.sub.innerText = def.hint + ' (you own ' + format(have) + ')';
         row.button.innerText = room ? 'Buy ' + buyAmount + ': ' + format(price) : 'Inventory full';
-        row.button.disabled = points < price || !room || ownedCount(def.id) + buyAmount > MAX_PER_KIND;
+        row.button.disabled = points < price || !room || have + buyAmount > MAX_PER_KIND;
     }
 
     const anvilRow = shopRows.anvil;
@@ -710,6 +920,9 @@ function updateInventory() {
     if (invSel !== null && !getSlotAt(invSel)) {
         invSel = null; // the picked-up stack is gone
     }
+    if (currentScreen !== 'inventory-screen') {
+        return; // nothing to refresh while the inventory is closed
+    }
     paintGrid(invParts);
     let stock = 0;
     for (let i = 0; i < INV_SLOTS; i++) {
@@ -717,24 +930,34 @@ function updateInventory() {
             stock = stock + inventory[i].n;
         }
     }
-    let placed = 0;
-    for (const cell of grid) {
-        if (cell) {
-            placed = placed + 1;
-        }
-    }
+    const placed = countPieces(rootLayer);
     document.getElementById('inventory-total').innerText =
         format(stock) + (stock === 1 ? ' item' : ' items') + ' in your inventory, ' +
         format(placed) + ' placed in the factory';
 
     let text = 'Click a stack, then click another slot to move, merge or swap. ' +
         'Right-click moves one item. You can drag too. The top row is your hotbar.';
+    const picked = invSel !== null && invSel < INV_SLOTS ? inventory[invSel] : null;
     if (invSel !== null) {
-        const def = ITEM_BY_ID[getSlotAt(invSel).id];
-        text = def.emoji + ' ' + def.name + ' x' + getSlotAt(invSel).n + ': ' + def.hint;
+        const stack = getSlotAt(invSel);
+        const def = ITEM_BY_ID[stack.id];
+        text = def.emoji + ' ' + def.name + (stack.table ? '' : ' x' + stack.n) + ': ' + def.hint;
+        if (stack.table) {
+            text = text + ' (' + format(countPieces(stack.table)) + ' pieces inside)';
+        }
     }
     document.getElementById('inv-info').innerText = text;
+    // A chopping table can be edited right here
+    document.getElementById('inv-edit-btn').classList.toggle('hidden', !(picked && picked.table));
 }
+
+document.getElementById('inv-edit-btn').addEventListener('click', function () {
+    const stack = invSel !== null && invSel < INV_SLOTS ? inventory[invSel] : null;
+    if (stack && stack.table) {
+        openTableFromInventory(stack.table);
+    }
+});
+document.getElementById('table-back').addEventListener('click', leaveTable);
 buildShop();
 buildInventory();
 
@@ -935,26 +1158,37 @@ function floatText(event, amount) {
 // =====================================================================
 //  BUILDING: placing and removing pieces on the grid
 // =====================================================================
-function cellAt(x, y) {
-    return grid[y * COLS + x];
+function cellAt(layer, x, y) {
+    return layer.grid[y * COLS + x];
 }
 
 function inGrid(x, y) {
     return x >= 0 && y >= 0 && x < COLS && y < ROWS;
 }
 
-// Sushi can enter any piece except a rice cooker
-function passable(x, y) {
+// Sushi can enter any piece except a rice cooker or a chopping table
+function passable(layer, x, y) {
     if (!inGrid(x, y)) {
         return false;
     }
-    const cell = cellAt(x, y);
-    return cell !== null && roleOf(cell) !== 'source';
+    const cell = cellAt(layer, x, y);
+    return cell !== null && roleOf(cell) !== 'source' && roleOf(cell) !== 'table';
 }
 
 function clickSquare(x, y) {
+    const layer = viewLayer();
     const index = y * COLS + x;
-    const cell = grid[index];
+    const cell = layer.grid[index];
+
+    // Edit tool: go inside a chopping table
+    if (editMode) {
+        if (cell && cell.table) {
+            enterTable(cell.table);
+        } else {
+            showMessage('Click a chopping table to go inside it.');
+        }
+        return;
+    }
 
     // Remove tool: upgrades (soy sauce, wasabi...) come off first, the last one put on first
     if (removeMode) {
@@ -969,14 +1203,16 @@ function clickSquare(x, y) {
             }
             cell.mods.pop();
         } else {
-            if (!addToSlots(inventory, cell.kind, 1)) {
+            // A chopping table comes back with everything that is inside it
+            if (!addToSlots(inventory, cell.kind, 1, cell.table)) {
                 showMessage('Your inventory is full.');
                 return;
             }
-            grid[index] = null;
+            layer.grid[index] = null;
         }
         unsaved = true;
         displayDirty = true;
+        afterBuilding();
         return;
     }
 
@@ -1021,10 +1257,25 @@ function clickSquare(x, y) {
         }
         return;
     }
-    grid[index] = { kind: def.id, dir: rotation, mods: [] };
+    const isTable = def.role === 'table';
+    // A chopping table can go inside another one, but never inside itself (or inside something it holds)
+    if (isTable && layerContains(stack.table, layer)) {
+        showMessage("A chopping table can't go inside itself.");
+        return;
+    }
+    layer.grid[index] = { kind: def.id, dir: isTable ? 0 : rotation, mods: [] };
+    if (isTable) {
+        layer.grid[index].table = stack.table; // the inside moves with it
+    }
     useFromSlot(hotbarSel);
     unsaved = true;
     displayDirty = true;
+    afterBuilding();
+}
+
+// After placing or removing something: a floor full of diamonds is weird (see THE WEIRDNESS below)
+function afterBuilding() {
+    setTimeout(checkWeirdness, 300);
 }
 
 // =====================================================================
@@ -1063,13 +1314,13 @@ function speedMultiplier(cell) {
     return m;
 }
 
-function trySpawn(sx, sy, dir, value) {
+function trySpawn(layer, sx, sy, dir, value) {
     const tx = sx + DX[dir];
     const ty = sy + DY[dir];
-    if (!passable(tx, ty) || sushi.length >= MAX_SUSHI) {
+    if (!passable(layer, tx, ty) || layer.sushi.length >= MAX_SUSHI) {
         return false; // nowhere to put it
     }
-    sushi.push({
+    layer.sushi.push({
         x: sx, y: sy, tx: tx, ty: ty,
         dx: DX[dir], dy: DY[dir],
         p: 0, value: value, age: 0,
@@ -1084,8 +1335,8 @@ function trySpawn(sx, sy, dir, value) {
 }
 
 // Looks at the square the sushi is standing on and decides where to go next.
-function tryDepart(s) {
-    const cell = cellAt(s.x, s.y);
+function tryDepart(layer, s) {
+    const cell = cellAt(layer, s.x, s.y);
     if (!cell || roleOf(cell) === 'source') {
         s.dead = true;
         return;
@@ -1098,7 +1349,7 @@ function tryDepart(s) {
 
     const tx = s.x + s.dx;
     const ty = s.y + s.dy;
-    if (passable(tx, ty)) {
+    if (passable(layer, tx, ty)) {
         s.tx = tx;
         s.ty = ty;
         s.waiting = false;
@@ -1107,29 +1358,31 @@ function tryDepart(s) {
     }
 }
 
-function sell(s, x, y, multiplier) {
+function sell(layer, s, x, y, multiplier) {
     const now = performance.now() / 1000;
     const gained = s.value * multiplier;
     points = points + gained;
     salesLog.push({ t: now, v: gained });
-    effects.push({ x: x, y: y, text: '+' + formatRate(gained), age: 0 });
+    if (layer === viewLayer()) {
+        layer.effects.push({ x: x, y: y, text: '+' + formatRate(gained), age: 0 }); // only if you can see it
+    }
     unsaved = true;
     displayDirty = true;
 }
 
 // Called when a sushi reaches the middle of its target square
-function arrive(s) {
+function arrive(layer, s) {
     s.x = s.tx;
     s.y = s.ty;
-    const cell = cellAt(s.x, s.y);
+    const cell = cellAt(layer, s.x, s.y);
 
-    if (!cell || roleOf(cell) === 'source') {
-        s.dead = true; // the piece was removed while it was on its way
+    if (!cell || roleOf(cell) === 'source' || roleOf(cell) === 'table') {
+        s.dead = true; // the piece was removed (or replaced by a table) while it was on its way
         return;
     }
     const def = TILE_BY_ID[cell.kind];
     if (def.role === 'exit') {
-        sell(s, s.x, s.y, (def.sell || 1) * modMultiplier(cell));
+        sell(layer, s, s.x, s.y, (def.sell || 1) * modMultiplier(cell));
         s.dead = true;
         return;
     }
@@ -1151,10 +1404,10 @@ function arrive(s) {
             }
         }
     }
-    tryDepart(s);
+    tryDepart(layer, s);
 }
 
-function stepSushi(s, dt) {
+function stepSushi(layer, s, dt) {
     s.age = s.age + dt;
     if (s.age > MAX_AGE) {
         s.dead = true;
@@ -1162,17 +1415,17 @@ function stepSushi(s, dt) {
     }
 
     if (s.waiting) {
-        tryDepart(s); // maybe you built something since last time
+        tryDepart(layer, s); // maybe you built something since last time
         if (s.waiting || s.dead) {
             return;
         }
     }
 
-    s.p = s.p + SPEED * dt * speedMultiplier(cellAt(s.x, s.y)); // wasabi pieces are faster
+    s.p = s.p + SPEED * dt * speedMultiplier(cellAt(layer, s.x, s.y)); // wasabi pieces are faster
     // "while" in case a lot of time passed (for example the tab was in the background)
     while (s.p >= 1 && !s.dead) {
         s.p = s.p - 1;
-        arrive(s);
+        arrive(layer, s);
         if (s.waiting) {
             s.p = 0;
             return;
@@ -1180,43 +1433,62 @@ function stepSushi(s, dt) {
     }
 }
 
-// One step of the whole factory. dt = seconds since the last step.
-function runFactory(dt) {
+// One step of one floor. dt = seconds since the last step.
+function runLayer(layer, dt) {
     // Rice cookers make sushi
-    for (let i = 0; i < grid.length; i++) {
-        const cell = grid[i];
+    for (let i = 0; i < layer.grid.length; i++) {
+        const cell = layer.grid[i];
         if (cell && roleOf(cell) === 'source') {
-            timers[i] = (timers[i] || 0) + dt * speedMultiplier(cell);
-            while (timers[i] >= SPAWN_EVERY) {
+            layer.timers[i] = (layer.timers[i] || 0) + dt * speedMultiplier(cell);
+            while (layer.timers[i] >= SPAWN_EVERY) {
                 const x = i % COLS;
                 const y = Math.floor(i / COLS);
-                if (trySpawn(x, y, cell.dir, 1 * modMultiplier(cell))) {
-                    timers[i] = timers[i] - SPAWN_EVERY;
+                if (trySpawn(layer, x, y, cell.dir, 1 * modMultiplier(cell))) {
+                    layer.timers[i] = layer.timers[i] - SPAWN_EVERY;
                 } else {
-                    timers[i] = SPAWN_EVERY; // blocked: make one as soon as there is room
+                    layer.timers[i] = SPAWN_EVERY; // blocked: make one as soon as there is room
                     break;
                 }
             }
         } else {
-            delete timers[i];
+            delete layer.timers[i];
         }
     }
 
     // Move all the sushi
-    for (const s of sushi) {
-        stepSushi(s, dt);
+    for (const s of layer.sushi) {
+        stepSushi(layer, s, dt);
     }
-    sushi = sushi.filter(function (s) {
+    layer.sushi = layer.sushi.filter(function (s) {
         return !s.dead;
     });
 
     // Fade the "+5" popups
-    for (const effect of effects) {
+    for (const effect of layer.effects) {
         effect.age = effect.age + dt;
     }
-    effects = effects.filter(function (effect) {
+    layer.effects = layer.effects.filter(function (effect) {
         return effect.age < 0.9;
     });
+}
+
+// One step of the whole factory: the main floor and every chopping table placed on it,
+// and the tables inside those tables, and so on. (A loop, not recursion: tables can go forever.)
+function runFactory(dt) {
+    const floors = [rootLayer];
+    // A table you are editing from your Inventory is not placed anywhere, but it works while you watch it
+    if (viewPath.length > 0 && viewOrigin === 'inventory' && currentScreen === 'game-screen') {
+        floors.push(viewPath[0]);
+    }
+    while (floors.length > 0) {
+        const floor = floors.pop();
+        runLayer(floor, dt);
+        for (const cell of floor.grid) {
+            if (cell && cell.table) {
+                floors.push(cell.table);
+            }
+        }
+    }
 
     // Forget sales older than 10 seconds
     const now = performance.now() / 1000;
@@ -1296,14 +1568,44 @@ function drawMods(x, y, mods) {
     }
 }
 
-// Draws one piece in the square at (gx, gy)
-function drawPiece(kind, dir, gx, gy, time, mods) {
+// Brighter colours for the little factory drawn on a chopping table (the real ones are too dark)
+const MINI_COLOUR = { belt: '#8fa89a', source: '#7fd1a0', topping: '#6fb7e0', exit: '#ff9c6e', table: '#d9b26f' };
+
+// A chopping table: a wooden tile with a tiny picture of what is inside it
+function drawTable(x, y, table) {
+    ctx.fillStyle = TILE_BY_ID[TABLE_ID].colour;
+    roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#a07a45';
+    ctx.lineWidth = 2;
+    roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
+    ctx.stroke();
+
+    const pad = 9;
+    const size = (CELL - pad * 2) / COLS;
+    const top = y + (CELL - size * ROWS) / 2 - 1;
+    for (let gy = 0; gy < ROWS; gy++) {
+        for (let gx = 0; gx < COLS; gx++) {
+            const inner = table ? table.grid[gy * COLS + gx] : null;
+            ctx.fillStyle = inner ? MINI_COLOUR[TILE_BY_ID[inner.kind].role] : 'rgba(0, 0, 0, 0.35)';
+            ctx.fillRect(x + pad + gx * size + 0.5, top + gy * size + 0.5, size - 1, size - 1);
+        }
+    }
+    drawEmoji(TILE_BY_ID[TABLE_ID].emoji, x + CELL - 11, y + CELL - 10, 12);
+}
+
+// Draws one piece in the square at (gx, gy). table: the inside of a chopping table (to draw it small)
+function drawPiece(kind, dir, gx, gy, time, mods, table) {
     const x = gx * CELL;
     const y = gy * CELL;
     const cx = x + CELL / 2;
     const cy = y + CELL / 2;
 
     const def = TILE_BY_ID[kind];
+    if (def.role === 'table') {
+        drawTable(x, y, table);
+        return;
+    }
     if (def.role === 'belt') {
         ctx.fillStyle = def.colour;
         roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 8);
@@ -1408,6 +1710,7 @@ function draw() {
     }
 
     const time = performance.now() / 1000;
+    const layer = viewLayer();
     ctx.setTransform(RES, 0, 0, RES, 0, 0);
     ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL);
 
@@ -1420,15 +1723,15 @@ function draw() {
     }
 
     // Pieces
-    for (let i = 0; i < grid.length; i++) {
-        const cell = grid[i];
+    for (let i = 0; i < layer.grid.length; i++) {
+        const cell = layer.grid[i];
         if (cell) {
-            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time, cell.mods);
+            drawPiece(cell.kind, cell.dir, i % COLS, Math.floor(i / COLS), time, cell.mods, cell.table);
         }
     }
 
     // Sushi on top
-    for (const s of sushi) {
+    for (const s of layer.sushi) {
         let gx;
         let gy;
         if (s.waiting) {
@@ -1442,7 +1745,7 @@ function draw() {
     }
 
     // "+5" popups
-    for (const effect of effects) {
+    for (const effect of layer.effects) {
         const rise = effect.age * 40;
         ctx.globalAlpha = 1 - effect.age / 0.9;
         ctx.font = '700 18px Fredoka, system-ui, sans-serif';
@@ -1458,12 +1761,14 @@ function draw() {
 
     // The square under the mouse: outline + a see-through preview of the piece
     if (hover) {
-        const cell = cellAt(hover.x, hover.y);
+        const cell = cellAt(layer, hover.x, hover.y);
         const stack = inventory[hotbarSel];
         const def = stack ? ITEM_BY_ID[stack.id] : null;
         let colour = '#b7e05a';          // green: this will work
         if (removeMode) {
             colour = cell ? '#ff9c9c' : 'rgba(246, 243, 234, 0.35)';
+        } else if (editMode) {
+            colour = cell && cell.table ? '#d9b26f' : '#ff9c9c';
         } else if (!def) {
             colour = 'rgba(246, 243, 234, 0.35)';
         } else if (def.applies) {
@@ -1473,9 +1778,13 @@ function draw() {
         } else if (!TILE_BY_ID[def.id]) {
             colour = '#ff9c9c';            // an ingredient can't be placed
         } else if (!cell) {
-            ctx.globalAlpha = 0.55;
-            drawPiece(def.id, rotation, hover.x, hover.y, time, []);
-            ctx.globalAlpha = 1;
+            if (def.role === 'table' && layerContains(stack.table, layer)) {
+                colour = '#ff9c9c';    // a table can't go inside itself
+            } else {
+                ctx.globalAlpha = 0.55;
+                drawPiece(def.id, rotation, hover.x, hover.y, time, [], stack.table);
+                ctx.globalAlpha = 1;
+            }
         } else if (cell.kind !== def.id) {
             colour = '#ff9c9c';
         }
@@ -1509,53 +1818,202 @@ canvas.addEventListener('pointerleave', function () {
 canvas.addEventListener('click', function (event) {
     const square = squareFromEvent(event);
     if (square) {
+        const cell = cellAt(viewLayer(), square.x, square.y);
+        if (event.shiftKey && cell && cell.table) {
+            enterTable(cell.table); // Shift-click a table: go inside
+            return;
+        }
         clickSquare(square.x, square.y);
         saveSoon();
+    }
+});
+
+// Right-click a chopping table: go inside (on any other square the normal menu stays)
+canvas.addEventListener('contextmenu', function (event) {
+    const square = squareFromEvent(event);
+    const cell = square ? cellAt(viewLayer(), square.x, square.y) : null;
+    if (cell && cell.table) {
+        event.preventDefault();
+        enterTable(cell.table);
     }
 });
 
 // =====================================================================
 //  SAVING
 // =====================================================================
-// The grid is saved as a list of short texts, one per square: "" (empty) or "belt:0".
+// The factory is saved as a list of short texts, one per square: "" (empty) or "belt:0".
 // Upgrades add a third part: "fish:0:golden_soy_sauce,wasabi".
-function gridToList() {
-    return grid.map(function (cell) {
+// A chopping table carries its inside in square brackets: "chopping_table:0[ ...48 squares split by ; ... ]".
+// A table inside a table is just a table text inside those brackets, so it can go on forever,
+// and it all still fits in the same two fields (factory and inventory) the Firestore rules already allow.
+
+// "belt:0" / "fish:0:wasabi" / "chopping_table:0": a piece without its inside
+function cellHead(cell) {
+    return cell.kind + ':' + cell.dir + (cell.mods.length > 0 ? ':' + cell.mods.join(',') : '');
+}
+
+// The reverse of cellHead (null if it is not a real piece). A chopping table gets no inside yet.
+function cellFromHead(head) {
+    const parts = String(head).split(':');
+    const kind = parts[0];
+    const dir = Number(parts[1]);
+    if (!TILE_BY_ID[kind] || !(dir >= 0 && dir <= 3)) {
+        return null;
+    }
+    const cell = { kind: kind, dir: dir, mods: [] };
+    if (TILE_BY_ID[kind].role === 'table') {
+        cell.table = newLayer(); // (replaced by the real inside when the text has one)
+    }
+    for (const id of String(parts[2] || '').split(',')) {
+        const equip = ITEM_BY_ID[id];
+        if (equip && equip.applies && equip.applies.includes(TILE_BY_ID[kind].role) && !cell.mods.includes(id)) {
+            cell.mods.push(id);
+        }
+    }
+    return cell;
+}
+
+// One whole floor as text: its 48 squares split by ";" and the inside of every table in [ ].
+// Loops instead of calling itself, so a table inside a table inside a table... is fine.
+function layerToText(root) {
+    const out = [];
+    const stack = [{ grid: root.grid, i: 0 }];
+    while (stack.length > 0) {
+        const frame = stack[stack.length - 1];
+        if (frame.i >= CELLS) {
+            stack.pop();
+            if (stack.length > 0) {
+                out.push(']');
+            }
+            continue;
+        }
+        if (frame.i > 0) {
+            out.push(';');
+        }
+        const cell = frame.grid[frame.i];
+        frame.i = frame.i + 1;
+        if (cell) {
+            out.push(cellHead(cell));
+            if (cell.table) {
+                out.push('[');
+                stack.push({ grid: cell.table.grid, i: 0 });
+            }
+        }
+    }
+    return out.join('');
+}
+
+// The reverse of layerToText. Bad text gives empty squares instead of an error.
+function textToLayer(text) {
+    const root = newLayer();
+    const stack = [{ layer: root, i: 0, head: '', opened: false }];
+
+    // The square we were reading is done: store it (unless it was a table, which was stored at its "[")
+    function finishSquare(frame) {
+        if (!frame.opened && frame.head !== '' && frame.i < CELLS) {
+            const cell = cellFromHead(frame.head);
+            if (cell) {
+                frame.layer.grid[frame.i] = cell;
+            }
+        }
+        frame.i = frame.i + 1;
+        frame.head = '';
+        frame.opened = false;
+    }
+
+    for (let k = 0; k < text.length; k++) {
+        const ch = text[k];
+        const frame = stack[stack.length - 1];
+        if (ch === ';') {
+            finishSquare(frame);
+        } else if (ch === '[') {
+            const cell = cellFromHead(frame.head);
+            let inside = newLayer(); // (thrown away if this square is not a real table)
+            if (cell && TILE_BY_ID[cell.kind].role === 'table' && frame.i < CELLS) {
+                cell.table = inside;
+                frame.layer.grid[frame.i] = cell;
+            }
+            frame.opened = true;
+            stack.push({ layer: inside, i: 0, head: '', opened: false });
+        } else if (ch === ']') {
+            if (stack.length > 1) {
+                finishSquare(frame);
+                stack.pop();
+            }
+        } else {
+            frame.head = frame.head + ch;
+        }
+    }
+    finishSquare(stack[stack.length - 1]);
+    return root;
+}
+
+function gridToList(layer) {
+    return layer.grid.map(function (cell) {
         if (!cell) {
             return '';
         }
-        return cell.kind + ':' + cell.dir + (cell.mods.length > 0 ? ':' + cell.mods.join(',') : '');
+        return cellHead(cell) + (cell.table ? '[' + layerToText(cell.table) + ']' : '');
     });
 }
 
+// Returns the 48 squares (empty ones if the saved list is missing or wrong)
 function listToGrid(list) {
     const result = emptyGrid();
-    if (!Array.isArray(list) || list.length !== COLS * ROWS) {
+    if (!Array.isArray(list) || list.length !== CELLS) {
         return result;
     }
     for (let i = 0; i < list.length; i++) {
-        const parts = String(list[i]).split(':');
-        const kind = parts[0];
-        const dir = Number(parts[1]);
-        if (TILE_BY_ID[kind] && dir >= 0 && dir <= 3) {
-            const cell = { kind: kind, dir: dir, mods: [] };
-            for (const id of String(parts[2] || '').split(',')) {
-                const equip = ITEM_BY_ID[id];
-                if (equip && equip.applies && equip.applies.includes(TILE_BY_ID[kind].role) && !cell.mods.includes(id)) {
-                    cell.mods.push(id);
-                }
+        const text = String(list[i]);
+        const open = text.indexOf('[');
+        if (open < 0) {
+            result[i] = cellFromHead(text);
+        } else if (text.endsWith(']')) {
+            const cell = cellFromHead(text.slice(0, open));
+            if (cell && TILE_BY_ID[cell.kind].role === 'table') {
+                cell.table = textToLayer(text.slice(open + 1, -1));
+                result[i] = cell;
             }
-            result[i] = cell;
         }
     }
     return result;
 }
 
+// An inventory slot as text: "belt:12". A chopping table carries its inside: "chopping_table:1[...]".
+function slotToText(s) {
+    if (!s) {
+        return '';
+    }
+    return s.id + ':' + s.n + (s.table ? '[' + layerToText(s.table) + ']' : '');
+}
+
+// The reverse (null if it is not a real item)
+function slotFromText(text) {
+    text = String(text);
+    let inside = null;
+    const open = text.indexOf('[');
+    if (open >= 0) {
+        if (!text.endsWith(']')) {
+            return null;
+        }
+        inside = text.slice(open + 1, -1);
+        text = text.slice(0, open);
+    }
+    const parts = text.split(':');
+    const n = Math.floor(Number(parts[1]));
+    if (!ITEM_BY_ID[parts[0]] || !(n >= 1)) {
+        return null;
+    }
+    const stack = { id: parts[0], n: Math.min(n, stackMax(parts[0])) };
+    if (parts[0] === TABLE_ID) {
+        stack.table = inside === null ? newLayer() : textToLayer(inside);
+    }
+    return stack;
+}
+
 // The inventory is saved as a list of INV_SLOTS short texts: "" (empty) or "belt:12".
 function inventoryToSave() {
-    return inventory.map(function (s) {
-        return s ? s.id + ':' + s.n : '';
-    });
+    return inventory.map(slotToText);
 }
 
 function inventoryFromSave(saved) {
@@ -1563,11 +2021,7 @@ function inventoryFromSave(saved) {
     if (Array.isArray(saved)) {
         // The new format: one text per slot
         for (let i = 0; i < Math.min(saved.length, INV_SLOTS); i++) {
-            const parts = String(saved[i]).split(':');
-            const n = Math.floor(Number(parts[1]));
-            if (ITEM_BY_ID[parts[0]] && n >= 1) {
-                result[i] = { id: parts[0], n: Math.min(n, MAX_STACK) };
-            }
+            result[i] = slotFromText(saved[i]);
         }
     } else if (saved && typeof saved === 'object') {
         // Old saves: { belt: 3, fish: 1 }. Fill the slots in order, so the hotbar
@@ -1589,10 +2043,8 @@ function saveData(pointsValue, chopsticksValue, slotsList) {
         name: playerName,
         points: Math.round(pointsValue * 100) / 100, // keep 2 decimals
         chopsticks: chopsticksValue,
-        factory: gridToList(),
-        inventory: slotsList.map(function (s) {
-            return s ? s.id + ':' + s.n : '';
-        }),
+        factory: gridToList(rootLayer),
+        inventory: slotsList.map(slotToText),
         anvil: anvil,
         savedAt: serverTimestamp() // Google's clock, not the player's
     };
@@ -1614,8 +2066,16 @@ async function save() {
     const withBoard = boardForce || performance.now() - lastBoardWrite >= BOARD_EVERY;
     boardForce = false;
     try {
+        const data = saveData(points, chopsticks, inventoryForSave());
+        // A Firestore document holds about 1 million characters. Better to say so than to fail every time.
+        if (data.factory.join('').length + data.inventory.join('').length > MAX_SAVE_CHARS) {
+            unsaved = true;
+            boardForce = boardForce || withBoard;
+            showMessage('Your factory is too big to save! Take some pieces out of your tables.');
+            return;
+        }
         const batch = writeBatch(db);
-        batch.set(doc(db, 'users', uid), saveData(points, chopsticks, inventoryForSave()));
+        batch.set(doc(db, 'users', uid), data);
         if (withBoard) {
             batch.set(doc(db, 'leaderboard', uid), {
                 name: playerName,
@@ -1693,7 +2153,7 @@ onAuthStateChanged(auth, async function (user) {
                 points = Number(data.points) || 0;
                 // Older saves kept this inside "owned"
                 chopsticks = Number(data.chopsticks) || Number(data.owned && data.owned.chopsticks) || 0;
-                grid = listToGrid(data.factory);
+                rootLayer.grid = listToGrid(data.factory);
                 inventory = inventoryFromSave(data.inventory); // older saves have none: starts empty
                 anvil = data.anvil === true;
                 unsaved = false;
@@ -2150,6 +2610,160 @@ setInterval(function () {
         loadLeaderboard(true);
     }
 }, 10000);
+
+// =====================================================================
+//  THE WEIRDNESS: fill a whole factory with diamonds...
+// =====================================================================
+// When every square of the floor you are on holds a diamond, something weird happens. You can say
+// "Stop the weirdness" (it asks again when you place a diamond again, or when you come back later), or
+// "Let me see then!": the diamonds are pulled together and turn into a Chopping table in your inventory.
+// This works on any floor: the main factory, or the inside of a chopping table.
+
+function isAllDiamonds(layer) {
+    return layer.grid.every(function (cell) {
+        return cell && cell.kind === 'diamond';
+    });
+}
+
+// Is there room in the inventory for the table, and for the upgrades that sat on the diamonds?
+function weirdRoom(layer) {
+    const copy = cloneSlots(inventory, false);
+    if (!addToSlots(copy, TABLE_ID, 1)) {
+        return false;
+    }
+    for (const cell of layer.grid) {
+        for (const id of cell.mods) {
+            if (!addToSlots(copy, id, 1)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function checkWeirdness() {
+    if (weirdBusy || !currentUser || currentScreen !== 'game-screen') {
+        return;
+    }
+    const layer = viewLayer();
+    if (!isAllDiamonds(layer)) {
+        weirdDeclined = false; // the diamonds are gone: next time it is allowed to ask again
+        return;
+    }
+    if (weirdDeclined) {
+        return;
+    }
+    if (!weirdRoom(layer)) {
+        showMessage('Something weird is going on... but your inventory is full. Make some room!');
+        return;
+    }
+    weirdBusy = true;
+    document.getElementById('weird-popup').classList.remove('hidden');
+    document.getElementById('weird-go').focus();
+}
+
+function weirdAfter(ms, fn) {
+    weirdTimers.push(setTimeout(fn, ms));
+}
+
+// Hides the popup and the event, and stops the event if it was running
+function cancelWeird() {
+    for (const t of weirdTimers) {
+        clearTimeout(t);
+    }
+    weirdTimers = [];
+    weirdBusy = false;
+    document.getElementById('weird-popup').classList.add('hidden');
+    document.getElementById('weird-scene').classList.add('hidden');
+}
+
+function weirdLine(text) {
+    document.getElementById('weird-line').innerText = text;
+}
+
+// The diamonds turn into a table: this is the moment the factory really changes
+function makeTableFromDiamonds(layer) {
+    const upgrades = [];
+    for (const cell of layer.grid) {
+        for (const id of cell.mods) {
+            upgrades.push(id);
+        }
+    }
+    addToSlots(inventory, TABLE_ID, 1);
+    for (const id of upgrades) {
+        addToSlots(inventory, id, 1); // the soy sauce etc. that was on the diamonds comes back
+    }
+    for (let i = 0; i < layer.grid.length; i++) {
+        layer.grid[i] = null;
+    }
+    layer.sushi = [];
+    layer.timers = {};
+    layer.effects = [];
+    unsaved = true;
+    displayDirty = true;
+    saveSoon();
+}
+
+function startWeirdScene() {
+    const layer = viewLayer(); // the floor that is full of diamonds
+    const scene = document.getElementById('weird-scene');
+    const field = document.getElementById('weird-field');
+
+    // 48 diamonds in the same places as on the factory floor
+    field.innerHTML = '';
+    for (let i = 0; i < CELLS; i++) {
+        const gem = document.createElement('div');
+        gem.className = 'weird-gem';
+        gem.innerText = '💎';
+        gem.style.setProperty('--cx', String((COLS - 1) / 2 - (i % COLS)));
+        gem.style.setProperty('--cy', String((ROWS - 1) / 2 - Math.floor(i / COLS)));
+        field.appendChild(gem);
+    }
+    document.getElementById('weird-table').classList.add('hidden');
+    document.getElementById('weird-done').classList.add('hidden');
+    scene.className = 'overlay phase-hum';
+    weirdLine('The diamonds are humming...');
+
+    weirdAfter(1800, function () {
+        scene.className = 'overlay phase-pull';
+        weirdLine('They are pulling together...');
+    });
+    weirdAfter(3300, function () {
+        // Check again: it must still be the same full floor, with room for the table
+        if (!isAllDiamonds(layer) || !weirdRoom(layer)) {
+            cancelWeird();
+            return;
+        }
+        makeTableFromDiamonds(layer);
+        scene.className = 'overlay phase-flash';
+        weirdLine('');
+    });
+    weirdAfter(3900, function () {
+        scene.className = 'overlay phase-table';
+        document.getElementById('weird-table').classList.remove('hidden');
+        weirdLine('A Chopping Table appeared! It is in your Inventory.');
+        const done = document.getElementById('weird-done');
+        done.classList.remove('hidden');
+        done.focus();
+    });
+}
+
+document.getElementById('weird-stop').addEventListener('click', function () {
+    cancelWeird();
+    weirdDeclined = true;
+    showMessage('The weirdness fades... for now.');
+});
+
+document.getElementById('weird-go').addEventListener('click', function () {
+    document.getElementById('weird-popup').classList.add('hidden');
+    document.getElementById('weird-scene').classList.remove('hidden');
+    startWeirdScene();
+});
+
+document.getElementById('weird-done').addEventListener('click', function () {
+    cancelWeird();
+    weirdDeclined = false;
+});
 
 // =====================================================================
 //  BUTTONS
