@@ -63,7 +63,12 @@
             </div>
 
             <div class="factory">
-                <h3>Sushi Factory</h3>
+                <h3 id="factory-title">Sushi Factory</h3>
+                <!-- Only shown while you are inside a chopping table -->
+                <div id="table-bar" class="table-bar hidden">
+                    <button id="table-back" class="small quiet">⬅ Leave table</button>
+                    <p id="table-trail" class="table-trail"></p>
+                </div>
                 <!-- app.js fills the hotbar (the first 9 inventory slots) and the tool buttons -->
                 <div id="toolbar">
                     <div id="hotbar"></div>
@@ -78,6 +83,7 @@
                     Rice cookers make rice balls.
                     Run rice balls past a fish to make complete sushi, add chefs to make it worth more, then end the line
                     with a serving counter to sell it.
+                    Chopping tables are little factories: place one, then use ✏️ Edit on it to build inside.
                 </p>
                 <p id="factory-message" class="factory-message" aria-live="polite"></p>
             </div>
@@ -110,6 +116,8 @@
             <p class="slot-label">Bag</p>
             <div id="inv-bag" class="slot-grid"></div>
             <p id="inv-info" class="slot-info"></p>
+            <!-- Shown when a chopping table is selected -->
+            <button id="inv-edit-btn" class="small hidden">✏️ Edit chopping table</button>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
@@ -183,6 +191,26 @@
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
+
+    <!-- The weirdness: shown when a whole factory is full of diamonds -->
+    <div id="weird-popup" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="weird-title">
+        <div class="weird-box">
+            <div class="weird-gems-row" aria-hidden="true">💎 💎 💎</div>
+            <h2 id="weird-title">Something Weird Is Going on...</h2>
+            <div class="weird-buttons">
+                <button id="weird-stop" class="quiet">Stop the weirdness</button>
+                <button id="weird-go">Let me see then!</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="weird-scene" class="overlay hidden" aria-live="polite">
+        <div id="weird-field" class="weird-field" aria-hidden="true"></div>
+        <div id="weird-flash" class="weird-flash"></div>
+        <div id="weird-table" class="weird-table hidden" aria-hidden="true">🔪</div>
+        <p id="weird-line" class="weird-line"></p>
+        <button id="weird-done" class="hidden">Take it</button>
+    </div>
 
 </body>
 </html>
