@@ -402,6 +402,7 @@ function showScreen(screenId) {
     if (screenId === 'leaderboard-screen') {
         loadLeaderboard(false);
     }
+    playMusicFor(screenId);
     updateDisplay();
 }
 
@@ -1737,6 +1738,142 @@ onAuthStateChanged(auth, async function (user) {
         showScreen('login-screen');
     }
 });
+
+// =====================================================================
+//  MUSIC: one song per screen (files are in Sound/Music/)
+// =====================================================================
+// Screens that are not listed here play the main theme.
+const MUSIC_DIR = 'Sound/Music/';
+const MUSIC_DEFAULT = 'Main_Theme.mp3';
+const SCREEN_MUSIC = {
+    'menu-screen': 'MainMenu.mp3',
+    'shop-screen': 'Shop.mp3',
+    'settings-screen': 'Codes.mp3'
+};
+const DEFAULT_VOLUME = 50;   // percent
+
+const musicTracks = {};      // file name -> <audio> element
+let currentMusic = null;     // the file that should be playing now
+let musicVolume = loadVolume() / 100;
+let musicBlocked = false;    // true when the browser refused to play before a click
+
+function loadVolume() {
+    try {
+        const saved = localStorage.getItem('sushiMusicVolume');
+        if (saved !== null && Number(saved) >= 0 && Number(saved) <= 100) {
+            return Number(saved);
+        }
+    } catch (error) {}
+    return DEFAULT_VOLUME;
+}
+
+function getTrack(file) {
+    if (!musicTracks[file]) {
+        const audio = document.createElement('audio');
+        audio.src = MUSIC_DIR + file;
+        audio.loop = true;
+        audio.preload = 'auto';
+        audio.volume = 0;
+        audio.dataset.track = file;
+        audio.hidden = true;
+        document.body.appendChild(audio);
+        musicTracks[file] = audio;
+    }
+    return musicTracks[file];
+}
+
+// Slowly changes the volume of a song (pauseAtEnd = stop it when it is quiet)
+function fadeMusic(audio, target, ms, pauseAtEnd) {
+    clearInterval(audio.fadeTimer);
+    const from = audio.volume;
+    const steps = Math.max(1, Math.round(ms / 50));
+    let step = 0;
+    audio.fadeTimer = setInterval(function () {
+        step = step + 1;
+        audio.volume = Math.min(1, Math.max(0, from + (target - from) * step / steps));
+        if (step >= steps) {
+            clearInterval(audio.fadeTimer);
+            if (pauseAtEnd) {
+                audio.pause();
+            }
+        }
+    }, 50);
+}
+
+function startMusic() {
+    if (!currentMusic || musicVolume === 0 || document.visibilityState === 'hidden') {
+        return;
+    }
+    const audio = getTrack(currentMusic);
+    if (!audio.paused) {
+        fadeMusic(audio, musicVolume, 400, false);
+        return;
+    }
+    audio.volume = 0;
+    audio.play().then(function () {
+        musicBlocked = false;
+        fadeMusic(audio, musicVolume, 700, false);
+    }).catch(function () {
+        // Browsers only allow sound after you click something. We try again on the first click.
+        musicBlocked = true;
+    });
+}
+
+function playMusicFor(screenId) {
+    const file = SCREEN_MUSIC[screenId] || MUSIC_DEFAULT;
+    if (file === currentMusic) {
+        return; // same song: keep playing, don't restart it
+    }
+    if (currentMusic) {
+        fadeMusic(getTrack(currentMusic), 0, 500, true);
+    }
+    currentMusic = file;
+    startMusic();
+}
+
+function setMusicVolume(percent, remember) {
+    musicVolume = percent / 100;
+    document.getElementById('music-value').innerText = percent + '%';
+    document.getElementById('music-input').value = percent;
+    if (remember) {
+        try {
+            localStorage.setItem('sushiMusicVolume', String(percent));
+        } catch (error) {}
+    }
+    if (musicVolume === 0) {
+        if (currentMusic) {
+            getTrack(currentMusic).pause();
+        }
+    } else {
+        startMusic();
+    }
+}
+
+document.getElementById('music-input').addEventListener('input', function (event) {
+    setMusicVolume(Number(event.target.value), true);
+});
+
+// The first click or key press lets the browser play music
+function unlockMusic() {
+    if (musicBlocked) {
+        startMusic();
+    }
+}
+document.addEventListener('pointerdown', unlockMusic);
+document.addEventListener('keydown', unlockMusic);
+
+// Pause when you switch to another tab
+document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') {
+        if (currentMusic) {
+            getTrack(currentMusic).pause();
+        }
+    } else {
+        startMusic();
+    }
+});
+
+setMusicVolume(Math.round(musicVolume * 100), false);
 
 // =====================================================================
 //  SETTINGS: username, game size, redeem codes
