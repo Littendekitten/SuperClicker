@@ -693,3 +693,36 @@ input[type="range"] {
 .board-row.me {
     outline: 2px solid var(--wasabi);
 }
+
+/* ---------- Anvil ---------- */
+.anvil-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin: 0.5rem 0;
+}
+
+.anvil-slots {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.anvil-slots .slot {
+    width: 4.2rem;
+}
+
+.anvil-arrow {
+    font-size: 2rem;
+    color: var(--rice-muted);
+}
+
+.slot.output {
+    border-style: dashed;
+}
+
+.slot.output.ready {
+    border-style: solid;
+    border-color: var(--wasabi);
+    box-shadow: 0 0 0.7rem rgba(183, 224, 90, 0.5);
+}
