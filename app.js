@@ -225,12 +225,42 @@ resetGame();
 // =====================================================================
 //  MATHS
 // =====================================================================
+// Big numbers get a letter: 1,474,879 -> "1.47M". Below one million we
+// show the whole number with commas, like before.
+const SUFFIXES = ['M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+
+// Returns the shortened text, or null when the number is too small to shorten
+function abbreviate(number) {
+    if (!(number >= 1000000)) return null;
+    // How many groups of 3 digits are there above the first million?
+    let group = Math.floor(Math.log10(number) / 3) - 2;      // 0 = M, 1 = B, ...
+    if (group >= SUFFIXES.length) group = SUFFIXES.length - 1;
+    let scaled = number / Math.pow(1000, group + 2);
+    // Cut off (don't round) to 2 decimals, so 999,999,999 never shows as "1000M"
+    scaled = Math.floor(scaled * 100) / 100;
+    // Safety net for floating point: 1000M should become 1B
+    if (scaled >= 1000 && group < SUFFIXES.length - 1) {
+        group++;
+        scaled = 1;
+    }
+    return String(scaled) + SUFFIXES[group];                  // 1.5 -> "1.5M", 2 -> "2M"
+}
+
 function format(number) {
+    const short = abbreviate(number);
+    if (short) return short;
     return Math.floor(number).toLocaleString('en-US'); // 12345.7 -> "12,345"
+}
+
+// The exact number with commas, for tooltips: 1474879 -> "1,474,879"
+function formatFull(number) {
+    return Math.floor(number).toLocaleString('en-US');
 }
 
 // For small numbers like 0.5: shows up to 2 decimals, no trailing zeros
 function formatRate(number) {
+    const short = abbreviate(number);
+    if (short) return short;
     const rounded = Math.round(number * 100) / 100;
     return rounded.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
@@ -556,6 +586,7 @@ function showMessage(text) {
 // =====================================================================
 function updateDisplay() {
     document.getElementById('score').innerText = format(points);
+    document.getElementById('score').title = formatFull(points); // hover to see the exact number
     document.getElementById('per-second').innerText =
         formatRate(pointsPerSecond()) + ' per second, ' + formatRate(clickPower()) + ' per click';
 
