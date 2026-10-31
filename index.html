@@ -159,11 +159,13 @@
         <button id="settings-back" class="quiet">Back</button>
     </section>
 
-    <!-- The anvil: unlocked in the shop. Merging comes later. -->
+    <!-- The anvil: unlocked in the shop. Merge items from your inventory into new ones. -->
     <section id="anvil-screen" class="screen hidden">
-        <div class="panel">
+        <div class="panel wide">
             <h1>⚒️ Anvil</h1>
-            <p>Merging tiles is coming soon. Merged tiles will show up in your Inventory.</p>
+            <p>Merge items from your inventory into new ones. Wasabi and soy sauce go onto pieces in the factory.</p>
+            <div id="anvil-list" class="item-list"></div>
+            <p id="anvil-msg" class="setting-msg" aria-live="polite"></p>
         </div>
         <button class="quiet" data-goto="game-screen">Back to factory</button>
     </section>
