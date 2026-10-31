@@ -55,23 +55,23 @@ const MAX_SCALE = 150;
 // The pieces you can place. Some are sold in the Shop, the rest you get by merging in the Anvil.
 //   role:      what the piece does: belt (carries), source (makes rice balls),
 //              topping (changes the sushi passing by) or exit (sells it)
-//   baseCost / growth / shop:  the Shop price of the first one, how much more each extra costs,
-//              and shop: false for pieces that are not sold there
+//   baseCost / growth / shop:  the Shop price, how much more each extra one costs (growth 1 = the price
+//              never changes; 1.15 = 15% more for each one you own), and shop: false for pieces that are not sold there
 //   bonus:     adds this much value          completes: turns a rice ball into complete sushi
 //   mult:      multiplies the value          speed: how fast it works (2 = twice as fast)
 //   sell:      a serving piece pays this many times the value
 const TILES = [
     // ---- the basics
     { id: 'belt',   name: 'Belt',            emoji: '➡️',  role: 'belt',    colour: '#26382f', baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
-    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  role: 'source',  colour: '#33503f', baseCost: 20,  growth: 1.15, hint: 'Makes a rice ball every 2 seconds' },
-    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  role: 'topping', colour: '#1f4a58', baseCost: 40,  growth: 1.15, hint: 'Turns a rice ball into sushi: +2, and complete sushi is worth 2x', bonus: 2, completes: true },
-    { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', role: 'topping', colour: '#4f3a1f', baseCost: 120, growth: 1.15, hint: 'Sushi passing by is worth +5', bonus: 5 },
+    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  role: 'source',  colour: '#33503f', baseCost: 20,  growth: 1, hint: 'Makes a rice ball every 2 seconds' },
+    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  role: 'topping', colour: '#1f4a58', baseCost: 40,  growth: 1, hint: 'Turns a rice ball into sushi: +2, and complete sushi is worth 2x', bonus: 2, completes: true },
+    { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', role: 'topping', colour: '#4f3a1f', baseCost: 120, growth: 1, hint: 'Sushi passing by is worth +5', bonus: 5 },
     { id: 'exit',   name: 'Serving counter', emoji: '🏮',  role: 'exit',    colour: '#5a2f22', baseCost: 10,  growth: 1,    hint: 'Sells what arrives for its value' },
 
     // ---- more things in the Shop
-    { id: 'express_belt', name: 'Express belt', emoji: '⏩', role: 'belt',    colour: '#3d3a1c', baseCost: 30, growth: 1.1,  hint: 'A belt that moves sushi 2x faster', speed: 2 },
-    { id: 'cucumber',     name: 'Cucumber',     emoji: '🥒', role: 'topping', colour: '#2c4a26', baseCost: 30, growth: 1.15, hint: 'Sushi passing by is worth +1 (it does not make complete sushi)', bonus: 1 },
-    { id: 'salt',         name: 'Salt shaker',  emoji: '🧂', role: 'topping', colour: '#47404f', baseCost: 80, growth: 1.2,  hint: 'Multiplies the value of sushi passing by by 1.25', mult: 1.25 },
+    { id: 'express_belt', name: 'Express belt', emoji: '⏩', role: 'belt',    colour: '#3d3a1c', baseCost: 30, growth: 1,  hint: 'A belt that moves sushi 2x faster', speed: 2 },
+    { id: 'cucumber',     name: 'Cucumber',     emoji: '🥒', role: 'topping', colour: '#2c4a26', baseCost: 30, growth: 1, hint: 'Sushi passing by is worth +1 (it does not make complete sushi)', bonus: 1 },
+    { id: 'salt',         name: 'Salt shaker',  emoji: '🧂', role: 'topping', colour: '#47404f', baseCost: 80, growth: 1,  hint: 'Multiplies the value of sushi passing by by 1.25', mult: 1.25 },
 
     // ---- only from the Anvil (or a code): faster rice cookers
     { id: 'rice_press',   name: 'Rice press',   emoji: '🍙', role: 'source',  colour: '#2f5a45', shop: false, hint: 'Makes a rice ball every second', speed: 2 },
