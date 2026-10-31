@@ -52,44 +52,79 @@ const DEFAULT_SCALE = 80;  // percent
 const MIN_SCALE = 50;
 const MAX_SCALE = 150;
 
-// The pieces you can place (you buy them in the Shop).
-//   baseCost: price of the first one      growth: how much each extra one costs more
-//   bonus:    how much value a topping adds to sushi that passes through
+// The pieces you can place. Some are sold in the Shop, the rest you get by merging in the Anvil.
+//   role:      what the piece does: belt (carries), source (makes rice balls),
+//              topping (changes the sushi passing by) or exit (sells it)
+//   baseCost / growth / shop:  the Shop price of the first one, how much more each extra costs,
+//              and shop: false for pieces that are not sold there
+//   bonus:     adds this much value          completes: turns a rice ball into complete sushi
+//   mult:      multiplies the value          speed: how fast it works (2 = twice as fast)
+//   sell:      a serving piece pays this many times the value
 const TILES = [
-    { id: 'belt',   name: 'Belt',            emoji: '➡️',  baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
-    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  baseCost: 20,  growth: 1.15, hint: 'Makes a rice ball every 2 seconds' },
-    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  baseCost: 40,  growth: 1.15, hint: 'Turns a rice ball into sushi: +2, and complete sushi is worth 2x', bonus: 2 },
-    { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', baseCost: 120, growth: 1.15, hint: 'Sushi passing by is worth +5', bonus: 5 },
-    { id: 'exit',   name: 'Serving counter', emoji: '🏮',  baseCost: 10,  growth: 1,    hint: 'Sells what arrives for its value' },
+    // ---- the basics
+    { id: 'belt',   name: 'Belt',            emoji: '➡️',  role: 'belt',    colour: '#26382f', baseCost: 2,   growth: 1,    hint: 'Carries sushi' },
+    { id: 'source', name: 'Rice cooker',     emoji: '🍚',  role: 'source',  colour: '#33503f', baseCost: 20,  growth: 1.15, hint: 'Makes a rice ball every 2 seconds' },
+    { id: 'fish',   name: 'Fish topping',    emoji: '🐟',  role: 'topping', colour: '#1f4a58', baseCost: 40,  growth: 1.15, hint: 'Turns a rice ball into sushi: +2, and complete sushi is worth 2x', bonus: 2, completes: true },
+    { id: 'chef',   name: 'Chef',            emoji: '🧑‍🍳', role: 'topping', colour: '#4f3a1f', baseCost: 120, growth: 1.15, hint: 'Sushi passing by is worth +5', bonus: 5 },
+    { id: 'exit',   name: 'Serving counter', emoji: '🏮',  role: 'exit',    colour: '#5a2f22', baseCost: 10,  growth: 1,    hint: 'Sells what arrives for its value' },
+
+    // ---- more things in the Shop
+    { id: 'express_belt', name: 'Express belt', emoji: '⏩', role: 'belt',    colour: '#3d3a1c', baseCost: 30, growth: 1.1,  hint: 'A belt that moves sushi 2x faster', speed: 2 },
+    { id: 'cucumber',     name: 'Cucumber',     emoji: '🥒', role: 'topping', colour: '#2c4a26', baseCost: 30, growth: 1.15, hint: 'Sushi passing by is worth +1 (it does not make complete sushi)', bonus: 1 },
+    { id: 'salt',         name: 'Salt shaker',  emoji: '🧂', role: 'topping', colour: '#47404f', baseCost: 80, growth: 1.2,  hint: 'Multiplies the value of sushi passing by by 1.25', mult: 1.25 },
+
+    // ---- only from the Anvil (or a code): faster rice cookers
+    { id: 'rice_press',   name: 'Rice press',   emoji: '🍙', role: 'source',  colour: '#2f5a45', shop: false, hint: 'Makes a rice ball every second', speed: 2 },
+    { id: 'rice_factory', name: 'Rice factory', emoji: '🏭', role: 'source',  colour: '#2a6650', shop: false, hint: 'Makes a rice ball every half second', speed: 4 },
+
+    // ---- only from the Anvil (or a code): better seafood (all make complete sushi)
+    { id: 'shrimp',  name: 'Shrimp',  emoji: '🦐', role: 'topping', colour: '#1f4f66', shop: false, hint: 'Turns a rice ball into sushi: +6',   bonus: 6,   completes: true },
+    { id: 'crab',    name: 'Crab',    emoji: '🦀', role: 'topping', colour: '#1f5472', shop: false, hint: 'Turns a rice ball into sushi: +16',  bonus: 16,  completes: true },
+    { id: 'squid',   name: 'Squid',   emoji: '🦑', role: 'topping', colour: '#1f5a7e', shop: false, hint: 'Turns a rice ball into sushi: +40',  bonus: 40,  completes: true },
+    { id: 'octopus', name: 'Octopus', emoji: '🐙', role: 'topping', colour: '#1f608a', shop: false, hint: 'Turns a rice ball into sushi: +100', bonus: 100, completes: true },
+    { id: 'lobster', name: 'Lobster', emoji: '🦞', role: 'topping', colour: '#1f6696', shop: false, hint: 'Turns a rice ball into sushi: +250', bonus: 250, completes: true },
+
+    // ---- only from the Anvil (or a code): better vegetables
+    { id: 'avocado',  name: 'Avocado',  emoji: '🥑', role: 'topping', colour: '#34502a', shop: false, hint: 'Sushi passing by is worth +3',  bonus: 3 },
+    { id: 'mushroom', name: 'Mushroom', emoji: '🍄', role: 'topping', colour: '#3c562e', shop: false, hint: 'Sushi passing by is worth +8',  bonus: 8 },
+    { id: 'tomato',   name: 'Tomato',   emoji: '🍅', role: 'topping', colour: '#445c32', shop: false, hint: 'Sushi passing by is worth +20', bonus: 20 },
+
+    // ---- only from the Anvil (or a code): better seasoning
+    { id: 'garlic',  name: 'Garlic',  emoji: '🧄', role: 'topping', colour: '#4d4456', shop: false, hint: 'Multiplies the value of sushi passing by by 1.5', mult: 1.5 },
+    { id: 'torch',   name: 'Torch',   emoji: '🔥', role: 'topping', colour: '#59404a', shop: false, hint: 'Multiplies the value of sushi passing by by 2',   mult: 2 },
+    { id: 'diamond', name: 'Diamond', emoji: '💎', role: 'topping', colour: '#3f4a68', shop: false, hint: 'Multiplies the value of sushi passing by by 3',   mult: 3 },
+
+    // ---- only from the Anvil (or a code): better serving pieces
+    { id: 'bento',      name: 'Bento counter', emoji: '🍱', role: 'exit', colour: '#6a3526', shop: false, hint: 'Sells sushi for double its value', sell: 2 },
+    { id: 'restaurant', name: 'Restaurant',    emoji: '🏯', role: 'exit', colour: '#7a3b2a', shop: false, hint: 'Sells sushi for 4x its value',      sell: 4 },
 ];
 
 // Equipable items: you put them ON a piece you already placed (they are not bought with points).
 // A piece can carry one of each. They come from redeem codes and from the Anvil.
-//   applies:    which pieces they can go on
-//   multiplier: how much more the piece earns      speed: how much faster the piece works
+//   applies:    which kinds of piece (by role) they can go on
+//   multiplier: how much more the piece earns      speed: how fast the piece works (2 = twice as fast)
 //   colour:     the colour of the glow on the piece
-const MONEY_PIECES = ['source', 'fish', 'chef', 'exit'];
 const EQUIPS = [
     {
         id: 'golden_soy_sauce', name: 'Golden soy sauce', emoji: '🍶', golden: true, colour: '#ffd34d',
-        multiplier: 2, applies: MONEY_PIECES,
-        hint: 'Click a rice cooker, fish, chef or serving counter in the factory to make it golden: it earns 2x'
+        multiplier: 2, applies: ['source', 'topping', 'exit'],
+        hint: 'Click a rice cooker, topping or serving piece in the factory to make it golden: it earns 2x'
     },
     {
         id: 'soy_sauce', name: 'Soy sauce', emoji: '🫙', colour: '#d9823b',
-        multiplier: 1.5, applies: MONEY_PIECES,
-        hint: 'Click a rice cooker, fish, chef or serving counter to make it earn 1.5x'
+        multiplier: 1.5, applies: ['source', 'topping', 'exit'],
+        hint: 'Click a rice cooker, topping or serving piece to make it earn 1.5x'
     },
     {
         id: 'wasabi', name: 'Wasabi', emoji: '🌿', colour: '#8fd14f',
-        speed: 2, applies: ['belt', 'source', 'fish', 'chef'],
-        hint: 'Click a belt, rice cooker, fish or chef to make it work 2x faster'
+        speed: 2, applies: ['belt', 'source', 'topping'],
+        hint: 'Click a belt, rice cooker or topping to make it work 2x faster'
     },
-];
-
-// Ingredients: they do nothing on their own, you merge them in the Anvil
-const MATERIALS = [
-    { id: 'spicy_drink', name: 'Spicy drink', emoji: '🌶️', hint: 'A strange ingredient. It does nothing on its own...' },
+    {
+        id: 'spicy_drink', name: 'Spicy drink', emoji: '🌶️', colour: '#e5533d',
+        speed: 1.5, applies: ['belt', 'source', 'topping'],
+        hint: 'Click a belt, rice cooker or topping to make it work 1.5x faster'
+    },
 ];
 
 // The Anvil recipes. Players are NOT shown these: they have to discover them.
@@ -98,6 +133,20 @@ const RECIPES = [
     { out: 'spicy_drink', n: 1, needs: [{ id: 'exit', n: 1 }, { id: 'chef', n: 1 }] },
     { out: 'wasabi',      n: 1, needs: [{ id: 'soy_sauce', n: 1 }, { id: 'spicy_drink', n: 1 }] },
 ];
+
+// Merge chains: 2 of one piece make 1 of the next one in the list
+const MERGE_CHAINS = [
+    ['source', 'rice_press', 'rice_factory'],
+    ['fish', 'shrimp', 'crab', 'squid', 'octopus', 'lobster'],
+    ['cucumber', 'avocado', 'mushroom', 'tomato'],
+    ['salt', 'garlic', 'torch', 'diamond'],
+    ['exit', 'bento', 'restaurant'],
+];
+for (const chain of MERGE_CHAINS) {
+    for (let i = 0; i + 1 < chain.length; i++) {
+        RECIPES.push({ out: chain[i + 1], n: 1, needs: [{ id: chain[i], n: 2 }] });
+    }
+}
 
 // The Remove tool is not an item, it is a button next to the hotbar
 const REMOVE_TOOL = {
@@ -114,9 +163,7 @@ for (const t of TILES) {
 for (const e of EQUIPS) {
     ITEM_BY_ID[e.id] = e;
 }
-for (const m of MATERIALS) {
-    ITEM_BY_ID[m.id] = m;
-}
+
 
 // Directions: 0 = right, 1 = down, 2 = left, 3 = up
 const DX = [1, 0, -1, 0];
@@ -546,6 +593,7 @@ function updateDisplay() {
 // =====================================================================
 //  THE SHOP: buy tiles (they go to your inventory) and unlock the anvil
 // =====================================================================
+const SHOP_TILES = TILES.filter(function (t) { return t.shop !== false; });
 const shopRows = {}; // tile id (or 'anvil') -> { sub, button }
 
 function addShopRow(id, emoji, name, hint, onBuy) {
@@ -564,7 +612,7 @@ function addShopRow(id, emoji, name, hint, onBuy) {
 }
 
 function buildShop() {
-    for (const def of TILES) {
+    for (const def of SHOP_TILES) {
         addShopRow(def.id, def.emoji, def.name, def.hint, function () {
             buyTile(def);
         });
@@ -586,7 +634,7 @@ function updateShop() {
         button.classList.toggle('selected', Number(button.dataset.amount) === buyAmount);
     }
 
-    for (const def of TILES) {
+    for (const def of SHOP_TILES) {
         const row = shopRows[def.id];
         const price = priceFor(def, buyAmount);
         const room = roomFor(inventory, def.id, buyAmount);
@@ -982,7 +1030,7 @@ function passable(x, y) {
         return false;
     }
     const cell = cellAt(x, y);
-    return cell !== null && cell.kind !== 'source';
+    return cell !== null && roleOf(cell) !== 'source';
 }
 
 function clickSquare(x, y) {
@@ -1030,7 +1078,7 @@ function clickSquare(x, y) {
     if (def.applies) {
         if (!cell) {
             showMessage('Click a piece you already placed to use the ' + def.name.toLowerCase() + ' on it.');
-        } else if (!def.applies.includes(cell.kind)) {
+        } else if (!def.applies.includes(roleOf(cell))) {
             showMessage('The ' + def.name.toLowerCase() + " doesn't work on a " + TILE_BY_ID[cell.kind].name.toLowerCase() + '.');
         } else if (cell.mods.includes(def.id)) {
             showMessage('That piece already has ' + def.name.toLowerCase() + ' on it.');
@@ -1046,7 +1094,7 @@ function clickSquare(x, y) {
     // A piece
     if (cell) {
         // Clicking a belt or rice cooker with the same piece turns it
-        if (cell.kind === def.id && (def.id === 'belt' || def.id === 'source')) {
+        if (cell.kind === def.id && (def.role === 'belt' || def.role === 'source')) {
             cell.dir = rotation;
             unsaved = true;
         } else {
@@ -1066,6 +1114,11 @@ function clickSquare(x, y) {
 // Every sushi is an object: where it is (x, y), where it is heading (tx, ty),
 // how far along it is (p from 0 to 1), and how much it is worth (value).
 
+// What kind of piece is this cell: belt, source, topping or exit (null if empty)
+function roleOf(cell) {
+    return cell ? TILE_BY_ID[cell.kind].role : null;
+}
+
 // How much a piece earns: all its upgrades multiplied (golden 2 x soy sauce 1.5 = 3)
 function modMultiplier(cell) {
     let m = 1;
@@ -1077,9 +1130,12 @@ function modMultiplier(cell) {
     return m;
 }
 
-// How fast a piece works: wasabi makes it 2x
+// How fast a piece works: its own speed times its upgrades (wasabi 2x, spicy drink 1.5x)
 function speedMultiplier(cell) {
     let m = 1;
+    if (cell && cell.kind && TILE_BY_ID[cell.kind]) {
+        m = TILE_BY_ID[cell.kind].speed || 1;   // express belts and bigger rice cookers
+    }
     if (cell && cell.mods) {
         for (const id of cell.mods) {
             m = m * (ITEM_BY_ID[id].speed || 1);
@@ -1111,11 +1167,11 @@ function trySpawn(sx, sy, dir, value) {
 // Looks at the square the sushi is standing on and decides where to go next.
 function tryDepart(s) {
     const cell = cellAt(s.x, s.y);
-    if (!cell || cell.kind === 'source') {
+    if (!cell || roleOf(cell) === 'source') {
         s.dead = true;
         return;
     }
-    if (cell.kind === 'belt') {
+    if (roleOf(cell) === 'belt') {
         s.dx = DX[cell.dir];
         s.dy = DY[cell.dir];
     }
@@ -1148,24 +1204,31 @@ function arrive(s) {
     s.y = s.ty;
     const cell = cellAt(s.x, s.y);
 
-    if (!cell || cell.kind === 'source') {
+    if (!cell || roleOf(cell) === 'source') {
         s.dead = true; // the piece was removed while it was on its way
         return;
     }
-    if (cell.kind === 'exit') {
-        sell(s, s.x, s.y, modMultiplier(cell));
+    const def = TILE_BY_ID[cell.kind];
+    if (def.role === 'exit') {
+        sell(s, s.x, s.y, (def.sell || 1) * modMultiplier(cell));
         s.dead = true;
         return;
     }
-    if (cell.kind === 'fish' || cell.kind === 'chef') {
+    if (def.role === 'topping') {
         const index = s.y * COLS + s.x;
         if (!s.seen.includes(index)) {
             s.seen.push(index);
-            s.value = s.value + TILE_BY_ID[cell.kind].bonus * modMultiplier(cell);
-            // The first fish turns the rice ball into complete sushi, which is worth more
-            if (cell.kind === 'fish' && !s.complete) {
+            if (def.bonus) {
+                s.value = s.value + def.bonus * modMultiplier(cell);
+            }
+            // The first seafood turns the rice ball into complete sushi, which is worth more
+            if (def.completes && !s.complete) {
                 s.complete = true;
                 s.value = s.value * COMPLETE_BOOST;
+            }
+            // Seasoning multiplies the value (golden etc. make the extra part bigger)
+            if (def.mult) {
+                s.value = s.value * (1 + (def.mult - 1) * modMultiplier(cell));
             }
         }
     }
@@ -1203,7 +1266,7 @@ function runFactory(dt) {
     // Rice cookers make sushi
     for (let i = 0; i < grid.length; i++) {
         const cell = grid[i];
-        if (cell && cell.kind === 'source') {
+        if (cell && roleOf(cell) === 'source') {
             timers[i] = (timers[i] || 0) + dt * speedMultiplier(cell);
             while (timers[i] >= SPAWN_EVERY) {
                 const x = i % COLS;
@@ -1321,8 +1384,9 @@ function drawPiece(kind, dir, gx, gy, time, mods) {
     const cx = x + CELL / 2;
     const cy = y + CELL / 2;
 
-    if (kind === 'belt') {
-        ctx.fillStyle = '#26382f';
+    const def = TILE_BY_ID[kind];
+    if (def.role === 'belt') {
+        ctx.fillStyle = def.colour;
         roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 8);
         ctx.fill();
 
@@ -1334,7 +1398,7 @@ function drawPiece(kind, dir, gx, gy, time, mods) {
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        const cellNow = mods && mods.length ? { mods: mods } : null;
+        const cellNow = { kind: kind, mods: mods || [] };
         const phase = (time * SPEED * speedMultiplier(cellNow)) % 1;
         for (let k = 0; k < 2; k++) {
             const px = (((phase + k * 0.5) % 1) - 0.5) * CELL * 0.8;
@@ -1350,8 +1414,7 @@ function drawPiece(kind, dir, gx, gy, time, mods) {
     }
 
     // Machines: a coloured tile with an emoji on it
-    const colours = { source: '#33503f', fish: '#1f4a58', chef: '#4f3a1f', exit: '#5a2f22' };
-    ctx.fillStyle = colours[kind];
+    ctx.fillStyle = def.colour;
     roundedRect(x + 2, y + 2, CELL - 4, CELL - 4, 10);
     ctx.fill();
     drawEmoji(TILE_BY_ID[kind].emoji, cx, cy, 28);
@@ -1359,7 +1422,7 @@ function drawPiece(kind, dir, gx, gy, time, mods) {
     drawMods(x, y, mods);
 
     // The rice cooker also shows which way it sends sushi
-    if (kind === 'source') {
+    if (def.role === 'source') {
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(dir * Math.PI / 2);
@@ -1486,7 +1549,7 @@ function draw() {
             colour = 'rgba(246, 243, 234, 0.35)';
         } else if (def.applies) {
             // Equipable: only works on a matching piece with nothing on it yet
-            const works = cell && def.applies.includes(cell.kind) && !cell.mods.includes(def.id);
+            const works = cell && def.applies.includes(roleOf(cell)) && !cell.mods.includes(def.id);
             colour = works ? def.colour : '#ff9c9c';
         } else if (!TILE_BY_ID[def.id]) {
             colour = '#ff9c9c';            // an ingredient can't be placed
@@ -1559,7 +1622,7 @@ function listToGrid(list) {
             const cell = { kind: kind, dir: dir, mods: [] };
             for (const id of String(parts[2] || '').split(',')) {
                 const equip = ITEM_BY_ID[id];
-                if (equip && equip.applies && equip.applies.includes(kind) && !cell.mods.includes(id)) {
+                if (equip && equip.applies && equip.applies.includes(TILE_BY_ID[kind].role) && !cell.mods.includes(id)) {
                     cell.mods.push(id);
                 }
             }
