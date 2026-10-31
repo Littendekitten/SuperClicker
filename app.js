@@ -89,10 +89,10 @@ const EQUIPS = [
 
 // Ingredients: they do nothing on their own, you merge them in the Anvil
 const MATERIALS = [
-    { id: 'spicy_drink', name: 'Spicy drink', emoji: '🌶️', hint: 'An ingredient. Merge it with soy sauce in the Anvil to make wasabi.' },
+    { id: 'spicy_drink', name: 'Spicy drink', emoji: '🌶️', hint: 'A strange ingredient. It does nothing on its own...' },
 ];
 
-// The Anvil: merge items from your inventory into new ones
+// The Anvil recipes. Players are NOT shown these: they have to discover them.
 const RECIPES = [
     { out: 'soy_sauce',   n: 1, needs: [{ id: 'belt', n: 2 }] },
     { out: 'spicy_drink', n: 1, needs: [{ id: 'exit', n: 1 }, { id: 'chef', n: 1 }] },
@@ -139,7 +139,8 @@ let effects = [];        // little "+5" popups
 
 let hotbarSel = 0;        // which hotbar slot (0-8) is selected
 let removeMode = false;  // true while the Remove tool is selected
-let invSel = null;       // the slot picked up on the inventory screen
+let invSel = null;       // the slot you picked up (a slot address, see getSlotAt)
+let anvilIn = [null, null]; // the two input slots of the Anvil
 let playerName = '';     // your username
 let rotation = 0;        // the direction new belts / rice cookers will face
 let hover = null;        // the square the mouse is over
@@ -163,6 +164,7 @@ function resetGame() {
     hotbarSel = 0;
     removeMode = false;
     invSel = null;
+    anvilIn = [null, null];
     inventory = emptyInventory();
     grid = emptyGrid();
     sushi = [];
@@ -270,19 +272,32 @@ function useFromSlot(i) {
     }
 }
 
+// Slot addresses: 0-35 are inventory slots, 36 and 37 are the two Anvil input slots.
+function getSlotAt(address) {
+    return address < INV_SLOTS ? inventory[address] : anvilIn[address - INV_SLOTS];
+}
+
+function setSlotAt(address, value) {
+    if (address < INV_SLOTS) {
+        inventory[address] = value;
+    } else {
+        anvilIn[address - INV_SLOTS] = value;
+    }
+}
+
 // Moves things between two slots, like in Minecraft:
 // empty slot = move, same item = merge, different item = swap.
 // one = true moves just a single item (right click).
 function moveSlot(from, to, one) {
-    if (from === to || !inventory[from]) {
+    if (from === to || !getSlotAt(from)) {
         return;
     }
-    const a = inventory[from];
-    const b = inventory[to];
+    const a = getSlotAt(from);
+    const b = getSlotAt(to);
 
     if (one) {
         if (!b) {
-            inventory[to] = { id: a.id, n: 1 };
+            setSlotAt(to, { id: a.id, n: 1 });
         } else if (b.id === a.id && b.n < MAX_STACK) {
             b.n = b.n + 1;
         } else {
@@ -290,25 +305,48 @@ function moveSlot(from, to, one) {
         }
         a.n = a.n - 1;
         if (a.n <= 0) {
-            inventory[from] = null;
+            setSlotAt(from, null);
         }
     } else if (!b) {
-        inventory[to] = a;
-        inventory[from] = null;
+        setSlotAt(to, a);
+        setSlotAt(from, null);
     } else if (b.id === a.id) {
         const moved = Math.min(MAX_STACK - b.n, a.n);
         b.n = b.n + moved;
         a.n = a.n - moved;
         if (a.n <= 0) {
-            inventory[from] = null;
+            setSlotAt(from, null);
         }
     } else {
-        inventory[from] = b;
-        inventory[to] = a;
+        setSlotAt(from, b);
+        setSlotAt(to, a);
     }
     unsaved = true;
     displayDirty = true;
     saveSoon();
+}
+
+// Whatever is lying in the Anvil goes back to the inventory
+function stowAnvil() {
+    for (let k = 0; k < anvilIn.length; k++) {
+        const s = anvilIn[k];
+        if (s && addToSlots(inventory, s.id, s.n)) {
+            anvilIn[k] = null;
+            unsaved = true;
+            displayDirty = true;
+        }
+    }
+}
+
+// The inventory as it is saved: items still in the Anvil are counted in
+function inventoryForSave() {
+    const copy = cloneSlots(inventory);
+    for (const s of anvilIn) {
+        if (s) {
+            addToSlots(copy, s.id, s.n);
+        }
+    }
+    return copy;
 }
 
 // Price of the next piece of this kind. More pieces owned = more expensive.
@@ -345,6 +383,9 @@ let currentScreen = 'loading-screen';
 let settingsReturn = 'menu-screen'; // where the Back button in Settings goes
 
 function showScreen(screenId) {
+    if (currentScreen === 'anvil-screen' && screenId !== 'anvil-screen') {
+        stowAnvil();
+    }
     if (screenId === 'settings-screen' && currentScreen !== 'settings-screen') {
         settingsReturn = currentScreen;
     }
@@ -527,7 +568,7 @@ function buildShop() {
             buyTile(def);
         });
     }
-    addShopRow('anvil', '⚒️', 'Anvil', 'Unlocks the Anvil: merge items into new ones', buyAnvil);
+    addShopRow('anvil', '⚒️', 'Anvil', 'Unlocks the Anvil: try putting items together', buyAnvil);
 
     for (const button of document.querySelectorAll('.amount-btn')) {
         button.addEventListener('click', function () {
@@ -594,98 +635,116 @@ function buyAnvil() {
 // =====================================================================
 // Click a stack, then click another slot: empty = move, same item = merge,
 // different item = swap. Right-click moves just one. You can also drag.
-const invParts = [];   // one { button, emoji, count } per slot
+const invParts = [];       // the inventory screen: one { button, emoji, count } per slot
+const anvInvParts = [];    // the same 36 slots, shown on the Anvil screen
+const anvilInParts = [];   // the two Anvil input slots
+let anvilOutPart = null;   // the Anvil output slot
 let dragFrom = null;
 
-function slotClicked(i, one) {
+function slotClicked(address, one) {
     if (invSel === null) {
-        if (inventory[i]) {
-            invSel = i;
+        if (getSlotAt(address)) {
+            invSel = address;
         }
-    } else if (invSel === i) {
+    } else if (invSel === address) {
         invSel = null;
     } else {
         const from = invSel;
-        moveSlot(from, i, one);
+        moveSlot(from, address, one);
         // Right-clicking keeps the stack selected, so you can drop several one by one
-        if (!(one && inventory[from])) {
+        if (!(one && getSlotAt(from))) {
             invSel = null;
         }
     }
     displayDirty = true;
 }
 
-function buildInventory() {
-    const hotbarBox = document.getElementById('inv-hotbar');
-    const bagBox = document.getElementById('inv-bag');
+// One slot you can click, right-click and drag. address says which slot it is.
+function makeSlot(address) {
+    // A div, not a button: Firefox can't drag buttons
+    const el = document.createElement('div');
+    el.className = 'slot';
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    el.draggable = true;
+    el.innerHTML = '<span class="slot-emoji"></span><span class="slot-count"></span>';
+
+    el.addEventListener('click', function () {
+        slotClicked(address, false);
+    });
+    el.addEventListener('contextmenu', function (event) {
+        event.preventDefault();
+        slotClicked(address, true);
+    });
+    el.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            slotClicked(address, false);
+        }
+    });
+
+    el.addEventListener('dragstart', function (event) {
+        if (!getSlotAt(address)) {
+            event.preventDefault();
+            return;
+        }
+        dragFrom = address;
+        el.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(address)); // Firefox needs this
+    });
+    el.addEventListener('dragover', function (event) {
+        if (dragFrom !== null) {
+            event.preventDefault();
+        }
+    });
+    el.addEventListener('drop', function (event) {
+        event.preventDefault();
+        if (dragFrom !== null) {
+            moveSlot(dragFrom, address, false);
+            invSel = null;
+            displayDirty = true;
+        }
+    });
+    el.addEventListener('dragend', function () {
+        dragFrom = null;
+        el.classList.remove('dragging');
+    });
+
+    return {
+        button: el,
+        emoji: el.querySelector('.slot-emoji'),
+        count: el.querySelector('.slot-count')
+    };
+}
+
+// The 36 inventory slots: the first 9 go in the hotbar box, the rest in the bag box
+function buildSlotGrid(hotbarBox, bagBox, parts) {
     for (let i = 0; i < INV_SLOTS; i++) {
-        // A div, not a button: Firefox can't drag buttons
-        const el = document.createElement('div');
-        el.className = 'slot';
-        el.setAttribute('role', 'button');
-        el.tabIndex = 0;
-        el.draggable = true;
-        el.innerHTML = '<span class="slot-emoji"></span><span class="slot-count"></span>';
+        const part = makeSlot(i);
+        (i < HOTBAR ? hotbarBox : bagBox).appendChild(part.button);
+        parts.push(part);
+    }
+}
 
-        el.addEventListener('click', function () {
-            slotClicked(i, false);
-        });
-        el.addEventListener('contextmenu', function (event) {
-            event.preventDefault();
-            slotClicked(i, true);
-        });
-        el.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                slotClicked(i, false);
-            }
-        });
+function buildInventory() {
+    buildSlotGrid(document.getElementById('inv-hotbar'), document.getElementById('inv-bag'), invParts);
+}
 
-        el.addEventListener('dragstart', function (event) {
-            if (!inventory[i]) {
-                event.preventDefault();
-                return;
-            }
-            dragFrom = i;
-            el.classList.add('dragging');
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', String(i)); // Firefox needs this
-        });
-        el.addEventListener('dragover', function (event) {
-            if (dragFrom !== null) {
-                event.preventDefault();
-            }
-        });
-        el.addEventListener('drop', function (event) {
-            event.preventDefault();
-            if (dragFrom !== null) {
-                moveSlot(dragFrom, i, false);
-                invSel = null;
-                displayDirty = true;
-            }
-        });
-        el.addEventListener('dragend', function () {
-            dragFrom = null;
-            el.classList.remove('dragging');
-        });
-
-        (i < HOTBAR ? hotbarBox : bagBox).appendChild(el);
-        invParts.push({
-            button: el,
-            emoji: el.querySelector('.slot-emoji'),
-            count: el.querySelector('.slot-count')
-        });
+function paintGrid(parts) {
+    for (let i = 0; i < INV_SLOTS; i++) {
+        paintSlot(parts[i], inventory[i]);
+        parts[i].button.classList.toggle('selected', invSel === i);
     }
 }
 
 function updateInventory() {
-    if (invSel !== null && !inventory[invSel]) {
+    if (invSel !== null && !getSlotAt(invSel)) {
         invSel = null; // the picked-up stack is gone
     }
+    paintGrid(invParts);
     let stock = 0;
     for (let i = 0; i < INV_SLOTS; i++) {
-        paintSlot(invParts[i], inventory[i]);
-        invParts[i].button.classList.toggle('selected', invSel === i);
         if (inventory[i]) {
             stock = stock + inventory[i].n;
         }
@@ -703,113 +762,134 @@ function updateInventory() {
     let text = 'Click a stack, then click another slot to move, merge or swap. ' +
         'Right-click moves one item. You can drag too. The top row is your hotbar.';
     if (invSel !== null) {
-        const def = ITEM_BY_ID[inventory[invSel].id];
-        text = def.emoji + ' ' + def.name + ' x' + inventory[invSel].n + ': ' + def.hint;
+        const def = ITEM_BY_ID[getSlotAt(invSel).id];
+        text = def.emoji + ' ' + def.name + ' x' + getSlotAt(invSel).n + ': ' + def.hint;
     }
     document.getElementById('inv-info').innerText = text;
 }
-
 buildShop();
 buildInventory();
 
 // =====================================================================
-//  THE ANVIL: merge items from your inventory into new ones
+//  THE ANVIL: two slots. Put items in and see what comes out (like Minecraft).
+//  There is no recipe list: players have to work it out themselves.
 // =====================================================================
-const anvilRows = [];
-
-function buildAnvil() {
-    const list = document.getElementById('anvil-list');
+// What do the two input slots make? The order and the slots don't matter, only what
+// is in them: the same items as a recipe, at least as many as it needs.
+function anvilRecipe() {
+    const totals = {};
+    for (const s of anvilIn) {
+        if (s) {
+            totals[s.id] = (totals[s.id] || 0) + s.n;
+        }
+    }
+    const ids = Object.keys(totals);
+    if (ids.length === 0) {
+        return null;
+    }
     for (const recipe of RECIPES) {
-        const out = ITEM_BY_ID[recipe.out];
-        const row = document.createElement('div');
-        row.className = 'item';
-        row.innerHTML =
-            '<span class="item-emoji"></span>' +
-            '<span class="item-info"><span class="item-name"></span><span class="item-sub"></span></span>';
-        row.querySelector('.item-emoji').innerText = out.emoji;
-        row.querySelector('.item-name').innerText = recipe.n + ' x ' + out.name;
-
-        const one = document.createElement('button');
-        one.className = 'item-buy';
-        one.innerText = 'Merge';
-        one.addEventListener('click', function () {
-            craft(recipe, 1);
-        });
-        const all = document.createElement('button');
-        all.className = 'item-buy quiet';
-        all.innerText = 'All';
-        all.addEventListener('click', function () {
-            craft(recipe, Infinity);
-        });
-        row.appendChild(one);
-        row.appendChild(all);
-        list.appendChild(row);
-        anvilRows.push({ recipe: recipe, sub: row.querySelector('.item-sub'), one: one, all: all });
+        if (recipe.needs.length === ids.length &&
+            recipe.needs.every(function (need) { return (totals[need.id] || 0) >= need.n; })) {
+            return recipe;
+        }
     }
+    return null;
 }
 
-// How many times could this recipe be made with what is in the bag?
-function craftable(recipe) {
-    let most = Infinity;
-    for (const need of recipe.needs) {
-        most = Math.min(most, Math.floor(countInSlots(inventory, need.id) / need.n));
-    }
-    return most;
-}
-
-// Takes n items out of the slots, starting from the last slot (so the hotbar is kept)
-function takeFromSlots(slots, id, n) {
-    for (let i = slots.length - 1; i >= 0 && n > 0; i--) {
-        if (slots[i] && slots[i].id === id) {
-            const take = Math.min(n, slots[i].n);
-            slots[i].n = slots[i].n - take;
+// Uses up n of an item from the two input slots
+function takeFromAnvil(id, n) {
+    for (let k = 0; k < anvilIn.length && n > 0; k++) {
+        const s = anvilIn[k];
+        if (s && s.id === id) {
+            const take = Math.min(n, s.n);
+            s.n = s.n - take;
             n = n - take;
-            if (slots[i].n <= 0) {
-                slots[i] = null;
+            if (s.n <= 0) {
+                anvilIn[k] = null;
             }
         }
     }
 }
 
-// times = 1 or Infinity (as many as you can). Returns how many were made.
-function craft(recipe, times) {
-    const box = document.getElementById('anvil-msg');
-    const out = ITEM_BY_ID[recipe.out];
-    const most = Math.min(craftable(recipe), times);
-    if (most < 1) {
-        setMessage('anvil-msg', "You don't have the items for that.", 'bad');
-        return 0;
+// Click the output slot to take what it made. Shift-click makes as many as the inputs allow.
+function takeOutput(all) {
+    const recipe = anvilRecipe();
+    if (!recipe) {
+        return;
     }
-    // Try the most first; if the bag has no room for the result, try fewer
+    let most = 1;
+    if (all) {
+        most = Infinity;
+        for (const need of recipe.needs) {
+            let have = 0;
+            for (const s of anvilIn) {
+                if (s && s.id === need.id) {
+                    have = have + s.n;
+                }
+            }
+            most = Math.min(most, Math.floor(have / need.n));
+        }
+    }
+    // If the bag has no room for that many, try fewer
     for (let count = most; count >= 1; count--) {
         const copy = cloneSlots(inventory);
-        for (const need of recipe.needs) {
-            takeFromSlots(copy, need.id, need.n * count);
-        }
         if (addToSlots(copy, recipe.out, recipe.n * count)) {
+            for (const need of recipe.needs) {
+                takeFromAnvil(need.id, need.n * count);
+            }
             inventory = copy;
             unsaved = true;
             displayDirty = true;
             saveSoon();
-            setMessage('anvil-msg', 'Made ' + (recipe.n * count) + ' x ' + out.name + '!', 'good');
-            return count;
+            setMessage('anvil-msg', 'You made ' + (recipe.n * count) + ' x ' + ITEM_BY_ID[recipe.out].name + '!', 'good');
+            return;
         }
     }
     setMessage('anvil-msg', 'Your inventory is full. Make some room first.', 'bad');
-    return 0;
+}
+
+function buildAnvil() {
+    buildSlotGrid(document.getElementById('anv-hotbar'), document.getElementById('anv-bag'), anvInvParts);
+
+    const inBox = document.getElementById('anvil-in');
+    for (let k = 0; k < 2; k++) {
+        const part = makeSlot(INV_SLOTS + k);
+        inBox.appendChild(part.button);
+        anvilInParts.push(part);
+    }
+
+    // The output slot: you can only take from it
+    const out = document.createElement('div');
+    out.className = 'slot output';
+    out.setAttribute('role', 'button');
+    out.tabIndex = 0;
+    out.innerHTML = '<span class="slot-emoji"></span><span class="slot-count"></span>';
+    out.addEventListener('click', function (event) {
+        takeOutput(event.shiftKey);
+    });
+    out.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            takeOutput(event.shiftKey);
+        }
+    });
+    document.getElementById('anvil-out').appendChild(out);
+    anvilOutPart = {
+        button: out,
+        emoji: out.querySelector('.slot-emoji'),
+        count: out.querySelector('.slot-count')
+    };
 }
 
 function updateAnvil() {
-    for (const row of anvilRows) {
-        const parts = row.recipe.needs.map(function (need) {
-            const def = ITEM_BY_ID[need.id];
-            return need.n + ' x ' + def.name + ' (you have ' + format(countInSlots(inventory, need.id)) + ')';
-        });
-        row.sub.innerText = ITEM_BY_ID[row.recipe.out].hint + '  Needs: ' + parts.join(' + ');
-        const can = craftable(row.recipe) >= 1;
-        row.one.disabled = !can;
-        row.all.disabled = !can;
+    paintGrid(anvInvParts);
+    for (let k = 0; k < 2; k++) {
+        paintSlot(anvilInParts[k], anvilIn[k]);
+        anvilInParts[k].button.classList.toggle('selected', invSel === INV_SLOTS + k);
     }
+    const recipe = anvilRecipe();
+    paintSlot(anvilOutPart, recipe ? { id: recipe.out, n: recipe.n } : null);
+    anvilOutPart.button.classList.toggle('ready', !!recipe);
 }
 buildAnvil();
 
@@ -941,7 +1021,7 @@ function clickSquare(x, y) {
 
     // An ingredient: it is used in the Anvil, not in the factory
     if (!TILE_BY_ID[def.id] && !def.applies) {
-        showMessage('The ' + def.name.toLowerCase() + ' is an ingredient. Merge it in the Anvil.');
+        showMessage('The ' + def.name.toLowerCase() + ' is an ingredient. It does not go on pieces.');
         return;
     }
 
@@ -1552,7 +1632,7 @@ async function save() {
     boardForce = false;
     try {
         const batch = writeBatch(db);
-        batch.set(doc(db, 'users', uid), saveData(points, chopsticks, inventory));
+        batch.set(doc(db, 'users', uid), saveData(points, chopsticks, inventoryForSave()));
         if (withBoard) {
             batch.set(doc(db, 'leaderboard', uid), {
                 name: playerName,
